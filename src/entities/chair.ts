@@ -14,7 +14,10 @@ export class Chair {
   keyEnteredAt = 0;      // when this chair entered its own key (defending)
   inOwnKey = false;
   penalty = 0;           // seconds left in the penalty box; > 0 = off court
-  boost = 0;             // 0..1: hype / on-fire speed and power boost
+  boost = 0;
+  speedMul = 1;          // difficulty handicap for CPU teams
+  aiT = 0;               // AI re-plan timer
+  aiCtl: Controls | null = null;             // 0..1: hype / on-fire speed and power boost
 
   // Stats derived from classification: low pointers are heavy blockers, high pointers fast ball carriers.
   readonly cls: number;
@@ -62,8 +65,8 @@ export class Chair {
     }
 
     if (throttle > 0 && this.stamina > 0.02) {
-      this.vx += fx * this.cruiseAccel * throttle * dt;
-      this.vy += fy * this.cruiseAccel * throttle * dt;
+      this.vx += fx * this.cruiseAccel * this.speedMul * throttle * dt;
+      this.vy += fy * this.cruiseAccel * this.speedMul * throttle * dt;
       this.stamina -= 0.035 * throttle * dt;
     } else if (throttle < 0) {
       this.vx += fx * this.cruiseAccel * 0.5 * throttle * dt;
@@ -87,7 +90,7 @@ export class Chair {
     this.vx *= k; this.vy *= k;
 
     const s = this.speed;
-    const max = this.maxSpeed * (holding ? 0.95 : 1) * (this.pushCooldown > 0 ? 1.25 : 1) * (1 + this.boost * 0.3);
+    const max = this.maxSpeed * this.speedMul * (holding ? 0.95 : 1) * (this.pushCooldown > 0 ? 1.25 : 1) * (1 + this.boost * 0.3);
     if (s > max) { this.vx *= max / s; this.vy *= max / s; }
 
     this.x += this.vx * dt;

@@ -5,7 +5,7 @@ import { collideChairs, type HitEvent } from '../core/physics';
 import { COURT } from './court';
 import { IDLE, type Controls } from '../core/input';
 import { autoLineup, validLineup, type PlayerDef, type TeamDef } from '../data/teams';
-import { aiControls } from '../ai/ai';
+import { aiControls, type Scheme } from '../ai/ai';
 import type { SfxName } from '../core/audio';
 import { RULES, type RuleSet } from './rules';
 
@@ -40,7 +40,10 @@ export class Match {
   stamina = new Map<PlayerDef, number>();     // bench + on-court freshness, by player
   stats = new Map<PlayerDef, PlayerStats>();
   turnovers = [0, 0];
-  demo = false;                                // attract mode: CPU plays both sides
+  demo = false;
+  skill = [0.6, 0.6];                         // AI quality per team (0..1)
+  speedMul = [1, 1];                          // difficulty handicap per team
+  scheme: [Scheme, Scheme] = ['press', 'trap'];                                // attract mode: CPU plays both sides
   autoSubs = [true, true];                     // CPU manages substitutions for that team
   onFullTime: () => void = () => {};
   sfx: (name: SfxName, v?: number) => void = () => {};
@@ -54,6 +57,7 @@ export class Match {
   slowScale = 1;
   chain = { team: -1, n: 0, t: 0 };
   private hitSoundGap = 0;
+  private stripGap = 0;
   onDeadBall: () => void = () => {};
 
   constructor(public teams: [TeamDef, TeamDef], rules: RuleSet = RULES.Arcade) {
@@ -131,6 +135,11 @@ export class Match {
 
   newPossession(team: number) {
     this.possTeam = team;
+    // Defending team picks a scheme: better teams press more when chasing the game late on.
+    const d = 1 - team, sk = this.skill[d];
+    const behind = this.score[d] < this.score[team], late = this.period >= 4 && this.clock < 60;
+    const pPress = 0.15 + sk * 0.35 + (behind && late ? 0.4 : 0);
+    this.scheme[d] = Math.random() < pPress ? 'press' : 'trap';
     this.shotClock = this.rules.shotClock;
     this.backcourtClock = this.rules.backcourtLimit;
     this.crossedHalf = false;
@@ -335,12 +344,13 @@ export class Match {
       if ((this.demo || t !== this.human.team) && this.hype[t] >= 1 && h?.team === t && (h.x - COURT.length / 2) * this.attackDir(t) > 0) this.useHype(t);
     }
     if (this.chain.t > 0) this.chain.t -= dt;
-    this.hitSoundGap -= dt;
+    this.hitSoundGap -= dt; this.stripGap -= dt;
 
     for (const c of this.onCourt) {
       const ctl = c.human && !this.demo ? human : aiControls(c, this);
       if (c.human && !this.demo && ctl.hype) this.useHype(c.team);
       c.boost = this.hypeTime[c.team] > 0 ? 1 : this.onFire[c.team] ? 0.3 : 0;
+      c.speedMul = this.speedMul[c.team];
       const holding = ball.holder === c;
       const cd = c.pushCooldown;
       c.update(dt, ctl, holding);
@@ -397,6 +407,22 @@ export class Match {
     }
     if (big && this.fx.texts.length < 2) this.fx.text(h.x, h.y - 1, pick(['SMASH!', 'BOOM!', 'WRECKED!', 'CRUNCH!']), '#ffe14d', 0.9);
     const carrier = ball.holder === h.a ? h.a : ball.holder === h.b ? h.b : null;
+    // Strip: a defender making contact can knock the ball out of the carrier's hands (legal in the real game).
+    if (carrier && this.stripGap <= 0) {
+      const def = carrier === h.a ? h.b : h.a;
+      const facing = Math.cos(def.heading) * (carrier.x - def.x) + Math.sin(def.heading) * (carrier.y - def.y);
+      const human = def.human && !this.demo;
+      const p = (human ? 0.22 : 0.04 + this.skill[def.team] * 0.22) * (facing > 0 ? 1 : 0.3) * (1.2 - carrier.cls * 0.12);
+      this.stripGap = 0.4;
+      if (Math.random() < p) {
+        ball.holder = null;
+        const a = Math.atan2(carrier.y - def.y, carrier.x - def.x) + (Math.random() - 0.5);
+        ball.vx = carrier.vx * 0.5 + Math.cos(a) * 3; ball.vy = carrier.vy * 0.5 + Math.sin(a) * 3;
+        ball.vz = 2; ball.lockChair = carrier; ball.lockTime = 0.4;
+        this.fx.text(carrier.x, carrier.y - 1.4, 'STRIPPED!', '#7dd3fc', 0.6);
+        return false;
+      }
+    }
     if (carrier && carrier !== hitter && h.impact > (hitter.boost >= 1 ? 3 : 4.2) && (hitter.boost >= 1 || Math.random() < 0.45)) {
       const s = carrier === h.a ? -1 : 1;
       ball.holder = null;

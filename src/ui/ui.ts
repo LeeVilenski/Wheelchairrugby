@@ -2,6 +2,7 @@ import './ui.css';
 import { FOCUS, autoLineup, lineupLimit, lineupPoints, validLineup, type Focus, type TeamDef } from '../data/teams';
 import { CLASSES, MAX_ROSTER, allTeams, decodeTeam, deleteTeam, encodeTeam, isCustom, newId, saveTeam, teamProblems, type StoredTeam } from '../data/store';
 import { Chair } from '../entities/chair';
+import { loadCup, newCup, nextOpponent, recordResult, saveCup, standings, type Cup } from '../game/cup';
 import { TIMEOUTS_PER_GAME, type Match } from '../game/match';
 
 export interface Settings {
@@ -10,8 +11,9 @@ export interface Settings {
   camera: 'full' | 'follow';
   autoSubs: boolean;
   sound: boolean;
+  difficulty: 'easy' | 'normal' | 'hard';
 }
-const DEFAULTS: Settings = { rules: 'Arcade', quarterMinutes: 3, camera: 'full', autoSubs: true, sound: true };
+const DEFAULTS: Settings = { rules: 'Arcade', quarterMinutes: 3, camera: 'full', autoSubs: true, sound: true, difficulty: 'normal' };
 
 export function loadSettings(): Settings {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('mb.settings') || '{}') }; } catch { return { ...DEFAULTS }; }
@@ -19,7 +21,7 @@ export function loadSettings(): Settings {
 export function saveSettings(s: Settings) { try { localStorage.setItem('mb.settings', JSON.stringify(s)); } catch { /* private mode */ } }
 
 export interface UiHooks {
-  start(home: TeamDef, away: TeamDef): void;
+  start(home: TeamDef, away: TeamDef, cup?: boolean): void;
   resume(): void;
   quit(): void;
   rematch(): void;
@@ -73,7 +75,8 @@ export class Ui {
       <p class="tag">Arcade wheelchair rugby</p>
       <div class="btns">
         <button class="btn" data-a="quick">Quick match</button>
-        <button class="btn alt" data-a="teams">Choose teams</button>
+        <button class="btn alt" data-a="teams">Exhibition</button>
+        <button class="btn alt" data-a="cup">🏆 Cup</button>
         <button class="btn alt" data-a="editor">Team editor</button>
         <button class="btn alt" data-a="settings">Settings</button>
         <button class="btn alt" data-a="help">How to play</button>
@@ -85,6 +88,7 @@ export class Ui {
         this.hooks.start(T[this.home], T[this.away]);
       },
       teams: () => this.teamSelect(),
+      cup: () => { const c = loadCup(); c ? this.cupScreen(c) : this.cupPick(); },
       editor: () => this.teamManager(),
       settings: () => { this.back = () => this.title(); this.settingsScreen(); },
       help: () => { this.back = () => this.title(); this.helpScreen(); },
@@ -120,6 +124,56 @@ export class Ui {
       prev: s => cycle(s, -1), next: s => cycle(s, 1),
       back: () => this.title(),
       go: () => this.hooks.start(T[this.home], T[this.away]),
+    });
+  }
+
+  // ---------------- Cup ----------------
+  private cupTeam = 0;
+  cupPick() {
+    const T = allTeams();
+    if (this.cupTeam >= T.length) this.cupTeam = 0;
+    const t = T[this.cupTeam];
+    this.show(`
+      <h2>🏆 Cup: choose your team</h2>
+      <p class="tag">Four teams play each other once. The top two meet in the final.</p>
+      <div class="team-card" style="--c:${t.primary};max-width:360px;margin:0 auto;width:100%">
+        <div class="row"><button class="chip" data-a="prev">◀</button><div class="name">${esc(t.name)}</div><button class="chip" data-a="next">▶</button></div>
+        <div><span class="swatch" style="background:${t.primary}"></span><span class="swatch" style="background:${t.secondary}"></span> ${t.short}</div>
+      </div>
+      <p class="tag">${this.settings.quarterMinutes}-minute quarters · ${this.settings.difficulty} CPU · change in Settings</p>
+      <div class="row"><button class="btn alt" data-a="back">Back</button><button class="btn" data-a="go">Start cup</button></div>`, {
+      prev: () => { this.cupTeam = (this.cupTeam - 1 + T.length) % T.length; this.cupPick(); },
+      next: () => { this.cupTeam = (this.cupTeam + 1) % T.length; this.cupPick(); },
+      back: () => this.title(),
+      go: () => { const c = newCup(T[this.cupTeam], T, this.settings.quarterMinutes); saveCup(c); this.cupScreen(c); },
+    });
+  }
+
+  cupScreen(c: Cup) {
+    const T = c.teams, opp = nextOpponent(c);
+    const name = (i: number) => `<span class="swatch" style="background:${T[i].primary}"></span> ${esc(T[i].name)}${i === 0 ? ' (you)' : ''}`;
+    const table = standings(c).map((r, pos) => `<tr${r.i === 0 ? ' style="font-weight:800"' : ''}><td>${pos + 1}. ${name(r.i)}</td>
+      <td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td>${r.pts}</td></tr>`).join('');
+    const res = c.results.map((r, k) => `<div>${k === 6 ? '<b>Final:</b> ' : ''}${esc(T[r.a].short)} ${r.sa} – ${r.sb} ${esc(T[r.b].short)}</div>`).join('');
+    let headline = '';
+    if (c.champion === 0) headline = `<div class="logo" style="font-size:56px">🏆</div><div class="mvp">${esc(T[0].name)} are cup champions!</div>`;
+    else if (c.champion !== null) headline = `<div class="mvp">${esc(T[c.champion].name)} won the cup.${c.final?.includes(0) ? ' So close!' : ' Better luck next time!'}</div>`;
+    else if (c.round === 3) headline = `<div class="mvp">THE FINAL: ${esc(T[c.final![0]].short)} vs ${esc(T[c.final![1]].short)}</div>`;
+    this.show(`
+      <h2>🏆 Cup</h2>
+      ${headline}
+      <table><tr><th>Group</th><th>P</th><th>W</th><th>L</th><th>+/-</th><th>Pts</th></tr>${table}</table>
+      <div class="tag" style="font-size:13px">${res || 'No games played yet.'}</div>
+      <div class="row">
+        <button class="btn alt" data-a="menu">Main menu</button>
+        ${c.champion !== null ? '<button class="btn" data-a="again">New cup</button>' : ''}
+        ${opp !== null ? `<button class="btn" data-a="play">${c.round === 3 ? 'Play the final' : `Round ${c.round + 1}`}: vs ${esc(T[opp].short)}</button>` : ''}
+        ${c.champion === null ? '<button class="btn alt" data-a="quit">Abandon cup</button>' : ''}
+      </div>`, {
+      menu: () => this.hooks.quit(),
+      again: () => { saveCup(null); this.cupPick(); },
+      play: () => { if (opp !== null) this.hooks.start(T[0], T[opp], true); },
+      quit: () => { if (confirm('Abandon this cup?')) { saveCup(null); this.title(); } },
     });
   }
 
@@ -256,6 +310,7 @@ export class Ui {
       `<button class="chip ${s[key] === v ? 'on' : ''}" data-a="set" data-v='${JSON.stringify([key, v])}'>${label}</button>`).join('');
     this.show(`
       <h2>Settings</h2>
+      <div class="setting">CPU difficulty<div class="opts">${chips('difficulty', [['Easy', 'easy'], ['Normal', 'normal'], ['Hard', 'hard']])}</div></div>
       <div class="setting">Rules<div class="opts">${chips('rules', [['Arcade', 'Arcade'], ['Sim (IWRF)', 'Sim']])}</div></div>
       <div class="setting">Quarter length<div class="opts">${chips('quarterMinutes', [['2 min', 2], ['3 min', 3], ['5 min', 5], ['8 min (real)', 8]])}</div></div>
       <div class="setting">Camera<div class="opts">${chips('camera', [['Full court', 'full'], ['Follow ball', 'follow']])}</div></div>
@@ -304,16 +359,21 @@ export class Ui {
         <button class="btn alt" data-a="subs" ${m.isDead ? '' : 'disabled'}>Substitutions${m.isDead ? '' : ' (dead ball only)'}</button>
         <button class="btn alt" data-a="settings">Settings</button>
         <button class="btn alt" data-a="help">How to play</button>
-        <button class="btn alt" data-a="quit">Quit to menu</button>
+        <button class="btn alt" data-a="quit">Quit to menu${loadCup() && this.inCup ? ' (counts as a loss)' : ''}</button>
       </div>`, {
       resume: () => this.hooks.resume(),
       timeout: () => { m.callTimeout(team); this.subs(m); },
       subs: () => this.subs(m),
       settings: () => { this.back = () => this.pause(m); this.settingsScreen(); },
       help: () => { this.back = () => this.pause(m); this.helpScreen(); },
-      quit: () => this.hooks.quit(),
+      quit: () => {
+        const c = loadCup();
+        if (c && this.inCup) { recordResult(c, m.score[0], Math.max(m.score[1], m.score[0] + 1)); /* quitting forfeits */ saveCup(c); }
+        this.hooks.quit();
+      },
     });
   }
+  inCup = false;
 
   private subOut: Chair | null = null;
   subs(m: Match) {
@@ -343,7 +403,7 @@ export class Ui {
     });
   }
 
-  fullTime(m: Match) {
+  fullTime(m: Match, cup = false) {
     m.banner = null;
     const [a, b] = m.score, T = m.teams;
     const winner = a > b ? 0 : 1;
@@ -359,7 +419,9 @@ export class Ui {
       ${mvp ? `<div class="mvp">MVP: #${mvp.p.number} ${esc(mvp.p.name)} (${mvp.t.short}) — ${plural(mvp.s.goals, 'goal')}, ${plural(mvp.s.hits, 'big hit')}, ${plural(mvp.s.steals, 'steal')}</div>` : ''}
       <table><tr><th>Player</th><th>Goals</th><th>Big hits</th><th>Steals</th><th>Fouls</th></tr>${rows}</table>
       <div class="tag">Turnovers: ${T[0].short} ${m.turnovers[0]} · ${T[1].short} ${m.turnovers[1]} &nbsp; Fouls: ${T[0].short} ${m.fouls[0]} · ${T[1].short} ${m.fouls[1]}</div>
-      <div class="row"><button class="btn" data-a="again">Rematch</button><button class="btn alt" data-a="menu">Main menu</button></div>`, {
+      <div class="row">${cup ? '<button class="btn" data-a="cup">Continue cup</button>'
+        : '<button class="btn" data-a="again">Rematch</button><button class="btn alt" data-a="menu">Main menu</button>'}</div>`, {
+      cup: () => { const c = loadCup(); if (c) { recordResult(c, m.score[0], m.score[1]); saveCup(c); this.cupScreen(c); } else this.title(); },
       again: () => this.hooks.rematch(),
       menu: () => this.hooks.quit(),
     });

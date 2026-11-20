@@ -5,6 +5,7 @@ import { Match } from './game/match';
 import { DEFAULT_TEAMS, type TeamDef } from './data/teams';
 import { RULES, type RuleSet } from './game/rules';
 import { Ui, type Settings } from './ui/ui';
+import { loadCup } from './game/cup';
 import { Audio } from './core/audio';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -20,15 +21,21 @@ let paused = false;
 
 function rulesFrom(st: Settings): RuleSet { return { ...RULES[st.rules], quarterSeconds: st.quarterMinutes * 60 }; }
 
-function newMatch(home: TeamDef, away: TeamDef, demo: boolean) {
-  match = new Match([home, away], rulesFrom(ui.settings));
+const DIFF = { easy: { skill: 0.25, speed: 0.88 }, normal: { skill: 0.6, speed: 0.95 }, hard: { skill: 1, speed: 1 } };
+function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false) {
+  const st = ui.settings;
+  match = new Match([home, away], cup ? { ...rulesFrom(st), quarterSeconds: (loadCup()?.quarterMinutes ?? st.quarterMinutes) * 60 } : rulesFrom(st));
   match.demo = demo;
+  ui.inCup = cup;
+  const d = DIFF[st.difficulty];
+  match.skill = demo ? [0.6, 0.6] : [0.6, d.skill];
+  match.speedMul = demo ? [1, 1] : [1, d.speed];
   match.autoSubs = [demo || ui.settings.autoSubs, true];
   match.onShake = a => camera.addShake(a);
   match.sfx = (n, v) => { if (!match.demo) audio.play(n, v); };
   match.onFullTime = () => {
     if (match.demo) { setTimeout(() => startDemo(), 4000); return; }
-    setTimeout(() => { paused = true; ui.fullTime(match); }, 2500);
+    setTimeout(() => { paused = true; ui.fullTime(match, ui.inCup); }, 2500);
   };
 }
 function startDemo() {
@@ -38,7 +45,7 @@ function startDemo() {
 }
 
 const ui = new Ui({
-  start: (home, away) => { newMatch(home, away, false); ui.close(); paused = false; },
+  start: (home, away, cup) => { newMatch(home, away, false, cup); ui.close(); paused = false; },
   resume: () => { ui.close(); paused = false; },
   quit: () => { startDemo(); ui.title(); },
   rematch: () => { newMatch(match.teams[0], match.teams[1], false); ui.close(); paused = false; },
