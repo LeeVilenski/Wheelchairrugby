@@ -3,7 +3,8 @@ import { Input, IDLE } from './core/input';
 import { Camera } from './core/camera';
 import { Match } from './game/match';
 import { DEFAULT_TEAMS, type TeamDef } from './data/teams';
-import { RULES, type RuleSet } from './game/rules';
+import { buildRules, type RuleSet } from './game/rules';
+import { canField, FORMATS } from './data/teams';
 import { Ui, type Settings } from './ui/ui';
 import { loadCup } from './game/cup';
 import { Audio } from './core/audio';
@@ -19,12 +20,13 @@ addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
 let paused = false;
 (window as unknown as { app: unknown }).app = { get match() { return match; } }; // handy for debugging
 
-function rulesFrom(st: Settings): RuleSet { return { ...RULES[st.rules], quarterSeconds: st.quarterMinutes * 60 }; }
+function rulesFrom(st: Settings, format = st.format, minutes = st.quarterMinutes): RuleSet { return buildRules(st.rules, format, minutes); }
 
 const DIFF = { easy: { skill: 0.25, speed: 0.88 }, normal: { skill: 0.6, speed: 0.95 }, hard: { skill: 1, speed: 1 } };
 function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false) {
   const st = ui.settings;
-  match = new Match([home, away], cup ? { ...rulesFrom(st), quarterSeconds: (loadCup()?.quarterMinutes ?? st.quarterMinutes) * 60 } : rulesFrom(st));
+  const c = cup ? loadCup() : null;
+  match = new Match([home, away], c ? rulesFrom(st, c.format ?? 'standard', c.quarterMinutes) : rulesFrom(st));
   match.demo = demo;
   ui.inCup = cup;
   const d = DIFF[st.difficulty];
@@ -41,7 +43,7 @@ function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false) {
   };
 }
 function startDemo() {
-  const T = DEFAULT_TEAMS, a = Math.floor(Math.random() * T.length);
+  const T = DEFAULT_TEAMS.filter(t => canField(t, FORMATS[ui.settings.format])), a = Math.floor(Math.random() * T.length);
   newMatch(T[a], T[(a + 1 + Math.floor(Math.random() * (T.length - 1))) % T.length], true);
   paused = false;
 }
@@ -150,7 +152,7 @@ function drawHud() {
   ctx.fillText(`${match.score[0]}  –  ${match.score[1]}`, W / 2, 30);
 
   // Clocks: period + game clock, shot clock, 12 s backcourt clock
-  const per = match.period > 4 ? `OT${match.period - 4}` : `Q${match.period}`;
+  const P = match.periods, per = match.period > P ? `OT${match.period - P}` : P === 2 ? `H${match.period}` : `Q${match.period}`;
   const cl = Math.max(0, match.clock), mm = Math.floor(cl / 60), ss = Math.floor(cl % 60);
   ctx.fillStyle = 'rgba(0,0,0,0.65)';
   ctx.beginPath(); ctx.roundRect(W / 2 - 95, 52, 190, 24, 8); ctx.fill();
@@ -203,7 +205,7 @@ function drawHud() {
   ctx.beginPath(); ctx.roundRect(px, pauseBtn.y, pauseBtn.w, pauseBtn.h, 8); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.fillRect(px + 15, pauseBtn.y + 10, 5, 16); ctx.fillRect(px + 24, pauseBtn.y + 10, 5, 16);
   ctx.font = '700 11px system-ui'; ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.fillText(`${match.rules.name.toUpperCase()} · TO ${match.timeouts[match.human.team]}`, W - 12, camBtn.y + camBtn.h + 14);
+  ctx.fillText(`${match.fmt.id === 'fives' ? 'FIVES · ' : ''}${match.rules.name.toUpperCase()} · TO ${match.timeouts[match.human.team]}`, W - 12, camBtn.y + camBtn.h + 14);
 
   // Banner
   const bn = match.banner;

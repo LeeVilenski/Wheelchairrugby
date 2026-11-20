@@ -10,6 +10,7 @@ A fast, top-down 4v4 wheelchair rugby game for the browser and phone, built on t
   quarters, overtime, timeouts and substitutions. Arcade (looser) and Sim (strict IWRF) presets.
 - **Arcade feel:** momentum physics and big hits, Hype meter, ON FIRE streaks, chain blocks, slow-mo, announcer callouts, synthesised sound.
 - **Teams:** 6 fictional presets, plus a team editor (colours, up to 12 players with class, focus and ♀) and shareable team codes.
+- **Formats:** Standard (IWRF 4v4, 8.0 points, 4 quarters) and **Fives** (GBWR CD-001: 5v5, 10.0 points, two halves, running clock except the last 2 min, 2 timeouts, max 3 in the penalty box).
 - **Modes:** Quick match, Exhibition, 4-team Cup; Easy/Normal/Hard CPU with press/trap defences and picks.
 - **Controls:** touch (floating stick + buttons), keyboard and gamepad. Full-court or follow-ball camera.
 

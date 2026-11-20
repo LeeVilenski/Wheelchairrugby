@@ -118,6 +118,7 @@ function think(c: Chair, m: Match, skill: number): Controls {
       [keyEdge, ky + 1.0],
       [keyEdge, ky + COURT.keyWidth - 1.0],
       [og + dir * 1.0, Math.max(ky + 1, Math.min(ky + COURT.keyWidth - 1, holder.y))],
+      [og + dir * (COURT.keyDepth + 3.5), W / 2], // fives: 5th defender sweeps in front of the wall
     ];
     let [tx, ty] = spots[i % spots.length];
     // Shift the wall toward the ball side.

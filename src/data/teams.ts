@@ -10,23 +10,33 @@ export const FOCUS: Record<Focus, { label: string; desc: string; speed: number; 
 };
 export interface TeamDef { name: string; short: string; primary: string; secondary: string; players: PlayerDef[]; }
 
-export const POINT_LIMIT = 8.0;
-export const FEMALE_ALLOWANCE = 0.5; // +0.5 to the limit per female player on court
+/** On-court size and classification limit. Standard IWRF: 4 players, 8.0. GBWR Fives: 5 players, 10.0. */
+export interface Format { id: 'standard' | 'fives'; size: number; limit: number; }
+export const STANDARD: Format = { id: 'standard', size: 4, limit: 8.0 };
+export const FIVES: Format = { id: 'fives', size: 5, limit: 10.0 };
+export const FORMATS = { standard: STANDARD, fives: FIVES };
+export const POINT_LIMIT = STANDARD.limit;
+export const FEMALE_ALLOWANCE = 0.5; // +0.5 to the limit per female player on court (both formats)
 
 export function lineupPoints(ps: PlayerDef[]) { return ps.reduce((s, p) => s + p.cls, 0); }
-export function lineupLimit(ps: PlayerDef[]) { return POINT_LIMIT + ps.filter(p => p.female).length * FEMALE_ALLOWANCE; }
-export function validLineup(ps: PlayerDef[]) { return ps.length === 4 && lineupPoints(ps) <= lineupLimit(ps) + 1e-9; }
+export function lineupLimit(ps: PlayerDef[], f: Format = STANDARD) { return f.limit + ps.filter(p => p.female).length * FEMALE_ALLOWANCE; }
+export function validLineup(ps: PlayerDef[], f: Format = STANDARD) { return ps.length === f.size && lineupPoints(ps) <= lineupLimit(ps, f) + 1e-9; }
+export function canField(t: TeamDef, f: Format) { return validLineup(autoLineup(t.players, undefined, f), f); }
 
-/** Best legal four: highest total points within the limit, weighted by freshness. */
-export function autoLineup(roster: PlayerDef[], stamina: (p: PlayerDef) => number = () => 1): PlayerDef[] {
-  let best: PlayerDef[] = roster.slice(0, 4), bestScore = -Infinity;
-  const n = roster.length;
-  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) for (let d = c + 1; d < n; d++) {
-    const ps = [roster[a], roster[b], roster[c], roster[d]];
-    if (!validLineup(ps)) continue;
-    const score = lineupPoints(ps) + ps.reduce((s, p) => s + stamina(p) * 3, 0);
-    if (score > bestScore) { bestScore = score; best = ps; }
-  }
+/** Best legal lineup: highest total points within the limit, weighted by freshness. */
+export function autoLineup(roster: PlayerDef[], stamina: (p: PlayerDef) => number = () => 1, f: Format = STANDARD): PlayerDef[] {
+  let best: PlayerDef[] = roster.slice(0, f.size), bestScore = -Infinity;
+  const pick: PlayerDef[] = [];
+  const rec = (start: number) => {
+    if (pick.length === f.size) {
+      if (!validLineup(pick, f)) return;
+      const score = lineupPoints(pick) + pick.reduce((s, p) => s + stamina(p) * 3, 0);
+      if (score > bestScore) { bestScore = score; best = pick.slice(); }
+      return;
+    }
+    for (let i = start; i <= roster.length - (f.size - pick.length); i++) { pick.push(roster[i]); rec(i + 1); pick.pop(); }
+  };
+  rec(0);
   return best;
 }
 

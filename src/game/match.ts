@@ -4,7 +4,7 @@ import { Fx } from '../core/fx';
 import { collideChairs, type HitEvent } from '../core/physics';
 import { COURT } from './court';
 import { IDLE, type Controls } from '../core/input';
-import { autoLineup, validLineup, type PlayerDef, type TeamDef } from '../data/teams';
+import { autoLineup, validLineup, type Format, type PlayerDef, type TeamDef } from '../data/teams';
 import { aiControls, type Scheme } from '../ai/ai';
 import type { SfxName } from '../core/audio';
 import { RULES, type RuleSet } from './rules';
@@ -12,10 +12,9 @@ import { RULES, type RuleSet } from './rules';
 const PASS_SPEED = 13;
 const BRAKED: Controls = { ...IDLE, brake: true };
 
-type State = { kind: 'play' } | { kind: 'dead'; timer: number; then: () => void } | { kind: 'over' };
+type State = { kind: 'play' } | { kind: 'dead'; timer: number; then: () => void; stopClock: boolean } | { kind: 'over' };
 
 export interface PlayerStats { goals: number; hits: number; steals: number; fouls: number; }
-export const TIMEOUTS_PER_GAME = 4;
 
 export class Match {
   chairs: Chair[] = [];
@@ -28,7 +27,7 @@ export class Match {
   onShake: (a: number) => void = () => {};
 
   rules: RuleSet = RULES.Arcade;
-  period = 1;               // 1-4, 5+ = overtime
+  period = 1;               // 1..rules.periods, then overtime
   clock = 0;                // seconds left in the period
   possTeam = -1;            // team in possession (kept while the ball is loose)
   shotClock = 0;
@@ -36,7 +35,9 @@ export class Match {
   crossedHalf = false;
   fouls = [0, 0];
 
-  timeouts = [TIMEOUTS_PER_GAME, TIMEOUTS_PER_GAME];
+  timeouts = [4, 4];
+  /** Fives: penalised players waiting off court for a box slot (seconds still to serve). */
+  waiting = new Map<PlayerDef, { team: number; secs: number }>();
   stamina = new Map<PlayerDef, number>();     // bench + on-court freshness, by player
   stats = new Map<PlayerDef, PlayerStats>();
   turnovers = [0, 0];
@@ -70,18 +71,22 @@ export class Match {
     this.stamina.clear(); this.stats.clear();
     this.teams.forEach((t, ti) => {
       for (const p of t.players) { this.stamina.set(p, 1); this.stats.set(p, { goals: 0, hits: 0, steals: 0, fouls: 0 }); }
-      for (const p of autoLineup(t.players)) this.chairs.push(new Chair(0, 0, 0, ti, t, p));
+      for (const p of autoLineup(t.players, undefined, this.fmt)) this.chairs.push(new Chair(0, 0, 0, ti, t, p));
     });
     this.human = undefined as unknown as Chair;
     this.setHuman(this.team(0)[0]);
-    this.timeouts = [TIMEOUTS_PER_GAME, TIMEOUTS_PER_GAME]; this.turnovers = [0, 0];
+    this.timeouts = [this.rules.timeouts, this.rules.timeouts]; this.turnovers = [0, 0]; this.waiting.clear();
     this.hype = [0, 0]; this.hypeTime = [0, 0]; this.onFire = [false, false]; this.streak = { team: -1, n: 0 };
     this.score = [0, 0]; this.fouls = [0, 0];
-    this.period = 1; this.clock = this.rules.quarterSeconds;
+    this.period = 1; this.clock = this.rules.periodSeconds;
     for (const c of this.chairs) { c.penalty = 0; c.stamina = 1; }
     this.state = { kind: 'play' };
     this.tipOff();
   }
+
+  get fmt(): Format { return this.rules.format; }
+  get periods() { return this.rules.periods; }
+  get inOvertime() { return this.period > this.rules.periods; }
 
   /** On-court players of a team (excludes the penalty box). */
   team(t: number) { return this.chairs.filter(c => c.team === t && c.penalty <= 0); }
@@ -97,12 +102,13 @@ export class Match {
 
   tipOff() {
     const L = COURT.length, W = COURT.width, mid = L / 2;
-    const ys = [W / 2, W / 2 - 3.5, W / 2 + 3.5, W / 2];
+    const ys = [W / 2, W / 2 - 3.5, W / 2 + 3.5, W / 2, W / 2 + 5.5];
+    const xs = [1.4, 3.5, 3.5, 7, 5.5];
     for (const t of [0, 1]) {
       const dir = this.attackDir(t);
       this.team(t).forEach((c, i) => {
-        c.x = mid - dir * (i === 0 ? 1.4 : i === 3 ? 7 : 3.5);
-        c.y = ys[i];
+        c.x = mid - dir * xs[i % 5];
+        c.y = ys[i % 5];
         c.heading = dir > 0 ? 0 : Math.PI;
         c.vx = c.vy = 0; c.holdTime = 0;
       });
@@ -116,11 +122,11 @@ export class Match {
   kickoff(team: number) {
     const W = COURT.width, dir = this.attackDir(team), back = this.ownGoalX(team);
     this.team(team).forEach((c, i) => {
-      c.x = back + dir * [0.8, 4, 4, 6.5][i]; c.y = [W / 2, W / 2 - 3, W / 2 + 3, W / 2][i];
+      c.x = back + dir * [0.8, 4, 4, 6.5, 8][i % 5]; c.y = [W / 2, W / 2 - 3, W / 2 + 3, W / 2, W / 2 - 5][i % 5];
       c.heading = dir > 0 ? 0 : Math.PI; c.vx = c.vy = 0;
     });
     this.team(1 - team).forEach((c, i) => {
-      c.x = COURT.length / 2 + dir * [-1, 1, 1, 4][i]; c.y = [W / 2, W / 2 - 3.5, W / 2 + 3.5, W / 2][i];
+      c.x = COURT.length / 2 + dir * [-1, 1, 1, 4, 2.5][i % 5]; c.y = [W / 2, W / 2 - 3.5, W / 2 + 3.5, W / 2, W / 2 + 5.5][i % 5];
       c.heading = dir > 0 ? Math.PI : 0; c.vx = c.vy = 0;
     });
     this.give(this.team(team)[0]);
@@ -137,7 +143,7 @@ export class Match {
     this.possTeam = team;
     // Defending team picks a scheme: better teams press more when chasing the game late on.
     const d = 1 - team, sk = this.skill[d];
-    const behind = this.score[d] < this.score[team], late = this.period >= 4 && this.clock < 60;
+    const behind = this.score[d] < this.score[team], late = this.period >= this.periods && this.clock < 60;
     const pPress = 0.15 + sk * 0.35 + (behind && late ? 0.4 : 0);
     this.scheme[d] = Math.random() < pPress ? 'press' : 'trap';
     this.shotClock = this.rules.shotClock;
@@ -146,8 +152,8 @@ export class Match {
   }
 
   showBanner(text: string, sub: string, color: string, life = 1.6) { this.banner = { text, sub, color, life }; }
-  deadBall(seconds: number, then: () => void) {
-    this.state = { kind: 'dead', timer: seconds, then };
+  deadBall(seconds: number, then: () => void, stopClock = false) {
+    this.state = { kind: 'dead', timer: seconds, then, stopClock };
     for (const t of [0, 1]) if (this.autoSubs[t]) this.aiSubs(t);
     this.onDeadBall();
   }
@@ -162,9 +168,15 @@ export class Match {
 
   /** Swap a chair for a bench player (only at a dead ball). Returns false if illegal. */
   substitute(out: Chair, incoming: PlayerDef): boolean {
-    if (!this.isDead || out.penalty > 0) return false;
+    if (!this.isDead) return false;
+    return this.swap(out, incoming);
+  }
+
+  /** Replace a chair with a bench player if the lineup stays legal (no dead-ball check). */
+  private swap(out: Chair, incoming: PlayerDef): boolean {
+    if (out.penalty > 0 || this.waiting.has(incoming)) return false;
     const after = this.lineup(out.team).map(c => c === out ? incoming : c.def);
-    if (!validLineup(after)) return false;
+    if (!validLineup(after, this.fmt)) return false;
     this.stamina.set(out.def, out.stamina);
     const c = new Chair(out.x, out.y, out.heading, out.team, out.teamDef, incoming);
     c.stamina = this.stamina.get(incoming) ?? 1;
@@ -179,7 +191,7 @@ export class Match {
     for (const out of this.lineup(team)) {
       if (out.stamina > 0.4 || out.penalty > 0) continue;
       const options = this.bench(team)
-        .filter(p => (this.stamina.get(p) ?? 1) > 0.75)
+        .filter(p => (this.stamina.get(p) ?? 1) > 0.75 && !this.waiting.has(p))
         .sort((a, b) => Math.abs(a.cls - out.cls) - Math.abs(b.cls - out.cls));
       for (const p of options) if (this.substitute(out, p)) break;
     }
@@ -214,7 +226,7 @@ export class Match {
     // Resume where we were: a live ball becomes a short dead ball so subs are allowed.
     if (this.state.kind === 'play') {
       const holder = this.ball.holder!;
-      this.deadBall(1.5, () => { this.give(holder); });
+      this.deadBall(1.5, () => { this.give(holder); }, true);
     } else {
       for (const t of [0, 1]) if (this.autoSubs[t]) this.aiSubs(t);
     }
@@ -248,6 +260,12 @@ export class Match {
     const t = this.teams[c.team];
     this.fx.text(c.x, c.y - 1.3, 'FOUL!', '#ff4040', 0.8);
     if (c.team === this.possTeam) return this.turnover(1 - c.team, `Offensive foul: ${what} (#${c.def.number})`, c.x, c.y);
+    // Fives: max 3 serving at once. A 4th penalised player is substituted and waits off court for a slot.
+    const serving = this.chairs.filter(o => o.team === c.team && o.penalty > 0).length;
+    if (serving >= this.rules.maxInBox && this.sendToWait(c)) {
+      this.showBanner('PENALTY', `${what} — #${c.def.number} ${c.def.name} waits off court (box full), sub comes on`, '#ff4040', 2.2);
+      return this.restartAfterFoul(c);
+    }
     // Defensive foul: player sits out; play restarts with the attacking team in possession where it is.
     c.penalty = this.rules.penaltySeconds;
     const slot = this.chairs.filter(o => o.penalty > 0 && o.team === c.team).length;
@@ -256,6 +274,24 @@ export class Match {
     if (this.ball.holder === c) this.ball.holder = null;
     if (c.human) this.switchHuman(true);
     this.showBanner('PENALTY', `${what} — #${c.def.number} ${c.def.name} (${t.short}) to the box`, '#ff4040', 2);
+    this.restartAfterFoul(c);
+  }
+
+  /** Swap a penalised player for a legal bench sub and queue their penalty. */
+  private sendToWait(c: Chair): boolean {
+    const wasHuman = c.human, wasHolder = this.ball.holder === c;
+    const options = this.bench(c.team).sort((a, b) => Math.abs(a.cls - c.cls) - Math.abs(b.cls - c.cls));
+    const def = c.def, team = c.team;
+    for (const p of options) if (this.swap(c, p)) {
+      this.waiting.set(def, { team, secs: this.rules.penaltySeconds });
+      if (wasHolder) this.ball.holder = null;
+      if (wasHuman) this.switchHuman();
+      return true;
+    }
+    return false; // no legal sub: fall back to the normal box
+  }
+
+  private restartAfterFoul(c: Chair) {
     const ball = this.ball, att = 1 - c.team;
     const carrier = ball.holder && ball.holder.team === att ? ball.holder : null;
     const x = carrier?.x ?? ball.x, y = carrier?.y ?? ball.y;
@@ -317,6 +353,9 @@ export class Match {
     if (this.state.kind === 'over') return;
 
     if (this.state.kind === 'dead') {
+      // Fives running clock: keeps going through stoppages until the last minutes of the period.
+      if (this.rules.runningClock && !this.state.stopClock && this.clock > this.rules.clockStopsLast)
+        this.clock = Math.max(this.rules.clockStopsLast, this.clock - dt);
       if ((this.state.timer -= dt) <= 0) { const then = this.state.then; this.state = { kind: 'play' }; then(); }
       for (const c of this.onCourt) c.update(dt, BRAKED, false);
       collideChairs(this.onCourt);
@@ -329,6 +368,11 @@ export class Match {
     for (const c of this.chairs) if (c.penalty > 0) {
       c.penalty -= dt;
       if (c.penalty <= 0) { c.penalty = 0.00001; this.releasePenalties(c.team, false); }
+    }
+    for (const t of [0, 1]) {
+      const inBox = this.chairs.filter(o => o.team === t && o.penalty > 0).length;
+      const next = [...this.waiting].find(([, w]) => w.team === t);
+      if (next && inBox < this.rules.maxInBox && (next[1].secs -= dt) <= 0) this.waiting.delete(next[0]);
     }
     if (this.clock <= 0) return this.endPeriod();
     const on = new Set(this.chairs.map(c => c.def));
@@ -507,22 +551,22 @@ export class Match {
     this.sfx('buzzer');
     this.ball.holder = null;
     const [a, b] = this.score, T = this.teams;
-    if (this.period >= 4 && a !== b) {
+    if (this.period >= this.periods && a !== b) {
       const w = a > b ? 0 : 1;
       this.showBanner('FULL TIME', `${T[w].name} win ${Math.max(a, b)}–${Math.min(a, b)}`, T[w].primary, 6);
       this.state = { kind: 'over' };
       this.onFullTime();
       return;
     }
-    const label = this.period >= 4 ? 'OVERTIME!' : this.period === 2 ? 'HALF TIME' : `END OF Q${this.period}`;
+    const label = this.period >= this.periods ? 'OVERTIME!' : this.period === this.periods / 2 ? 'HALF TIME' : `END OF Q${this.period}`;
     this.showBanner(label, `${T[0].short} ${a} – ${b} ${T[1].short}`, '#fff', 2.5);
     this.deadBall(2.5, () => {
       this.period++;
-      this.clock = this.period > 4 ? this.rules.overtimeSeconds : this.rules.quarterSeconds;
+      this.clock = this.period > this.periods ? this.rules.overtimeSeconds : this.rules.periodSeconds;
       for (const c of this.chairs) c.stamina = Math.min(1, c.stamina + 0.4);
       this.possTeam = -1;
       this.kickoff((this.period + 1) % 2); // alternate possession each period
-    });
+    }, true);
   }
 
   switchHuman(_force = false) {
@@ -552,6 +596,7 @@ export class Match {
     this.ball.holder = null; this.ball.vx = this.ball.vy = 0;
     this.deadBall(2.2, () => {
       this.releasePenalties(1 - scorer.team, true); // a goal frees the conceding team's penalised players
+      for (const [p, w] of this.waiting) if (w.team === 1 - scorer.team) this.waiting.delete(p);
       this.possTeam = -1;
       this.kickoff(1 - scorer.team);
     });

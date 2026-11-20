@@ -1,9 +1,9 @@
 import './ui.css';
-import { FOCUS, autoLineup, lineupLimit, lineupPoints, validLineup, type Focus, type TeamDef } from '../data/teams';
+import { FIVES, FOCUS, FORMATS, STANDARD, autoLineup, canField, lineupLimit, lineupPoints, validLineup, type Focus, type TeamDef } from '../data/teams';
 import { CLASSES, MAX_ROSTER, allTeams, decodeTeam, deleteTeam, encodeTeam, isCustom, newId, saveTeam, teamProblems, type StoredTeam } from '../data/store';
 import { Chair } from '../entities/chair';
 import { loadCup, newCup, nextOpponent, recordResult, saveCup, standings, type Cup } from '../game/cup';
-import { TIMEOUTS_PER_GAME, type Match } from '../game/match';
+import type { Match } from '../game/match';
 
 export interface Settings {
   rules: 'Arcade' | 'Sim';
@@ -15,8 +15,9 @@ export interface Settings {
   effects: boolean;      // screen shake, flashes, slow-mo
   vibration: boolean;
   seenHelp: boolean;
+  format: 'standard' | 'fives';
 }
-const DEFAULTS: Settings = { rules: 'Arcade', quarterMinutes: 3, camera: 'full', autoSubs: true, sound: true, difficulty: 'normal', effects: true, vibration: true, seenHelp: false };
+const DEFAULTS: Settings = { rules: 'Arcade', quarterMinutes: 3, camera: 'full', autoSubs: true, sound: true, difficulty: 'normal', effects: true, vibration: true, seenHelp: false, format: 'standard' };
 
 export function loadSettings(): Settings {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('mb.settings') || '{}') }; } catch { return { ...DEFAULTS }; }
@@ -85,7 +86,7 @@ export class Ui {
         <button class="btn ${this.settings.seenHelp ? 'alt' : ''}" data-a="help">${this.settings.seenHelp ? 'How to play' : '👋 New? How to play'}</button>
       </div>`, {
       quick: () => {
-        const T = allTeams();
+        const T = this.playable();
         this.home = Math.floor(Math.random() * T.length);
         do { this.away = Math.floor(Math.random() * T.length); } while (this.away === this.home);
         this.hooks.start(T[this.home], T[this.away]);
@@ -101,8 +102,11 @@ export class Ui {
     }, true);
   }
 
+  /** Teams that can field a legal lineup in the current format. */
+  playable() { const f = FORMATS[this.settings.format]; return allTeams().filter(t => canField(t, f)); }
+
   teamSelect() {
-    const T = allTeams();
+    const T = this.playable();
     if (this.home >= T.length) this.home = 0;
     if (this.away >= T.length || this.away === this.home) this.away = (this.home + 1) % T.length;
     const card = (i: number, who: string, side: string) => {
@@ -123,7 +127,7 @@ export class Ui {
       this[k] = v; this.teamSelect();
     };
     this.show(`
-      <h2>Choose teams</h2>
+      <h2>Choose teams${this.settings.format === 'fives' ? ' · Fives' : ''}</h2>
       <div class="teams">${card(this.home, 'YOU', 'home')}<div class="vs">VS</div>${card(this.away, 'CPU', 'away')}</div>
       <div class="row"><button class="btn alt" data-a="back">Back</button><button class="btn alt" data-a="edit">Team editor</button><button class="btn" data-a="go">Play</button></div>`, {
       edit: () => this.teamManager(),
@@ -136,7 +140,7 @@ export class Ui {
   // ---------------- Cup ----------------
   private cupTeam = 0;
   cupPick() {
-    const T = allTeams();
+    const T = this.playable();
     if (this.cupTeam >= T.length) this.cupTeam = 0;
     const t = T[this.cupTeam];
     this.show(`
@@ -146,12 +150,12 @@ export class Ui {
         <div class="row"><button class="chip" data-a="prev">◀</button><div class="name">${esc(t.name)}</div><button class="chip" data-a="next">▶</button></div>
         <div><span class="swatch" style="background:${t.primary}"></span><span class="swatch" style="background:${t.secondary}"></span> ${t.short}</div>
       </div>
-      <p class="tag">${this.settings.quarterMinutes}-minute quarters · ${this.settings.difficulty} CPU · change in Settings</p>
+      <p class="tag">${this.settings.format === 'fives' ? 'Fives · ' : ''}${this.settings.quarterMinutes}-minute ${this.settings.format === 'fives' ? 'setting' : 'quarters'} · ${this.settings.difficulty} CPU · change in Settings</p>
       <div class="row"><button class="btn alt" data-a="back">Back</button><button class="btn" data-a="go">Start cup</button></div>`, {
       prev: () => { this.cupTeam = (this.cupTeam - 1 + T.length) % T.length; this.cupPick(); },
       next: () => { this.cupTeam = (this.cupTeam + 1) % T.length; this.cupPick(); },
       back: () => this.title(),
-      go: () => { const c = newCup(T[this.cupTeam], T, this.settings.quarterMinutes); saveCup(c); this.cupScreen(c); },
+      go: () => { const c = newCup(T[this.cupTeam], T, this.settings.quarterMinutes, this.settings.format); saveCup(c); this.cupScreen(c); },
     });
   }
 
@@ -166,7 +170,7 @@ export class Ui {
     else if (c.champion !== null) headline = `<div class="mvp">${esc(T[c.champion].name)} won the cup.${c.final?.includes(0) ? ' So close!' : ' Better luck next time!'}</div>`;
     else if (c.round === 3) headline = `<div class="mvp">THE FINAL: ${esc(T[c.final![0]].short)} vs ${esc(T[c.final![1]].short)}</div>`;
     this.show(`
-      <h2>🏆 Cup</h2>
+      <h2>🏆 ${c.format === 'fives' ? 'Fives ' : ''}Cup</h2>
       ${headline}
       <table><tr><th>Group</th><th>P</th><th>W</th><th>L</th><th>+/-</th><th>Pts</th></tr>${table}</table>
       <div class="tag" style="font-size:13px">${res || 'No games played yet.'}</div>
@@ -247,6 +251,8 @@ export class Ui {
   editor(d: StoredTeam) {
     const probs = teamProblems(d);
     const best = d.players.length >= 4 ? autoLineup(d.players) : [];
+    const best5 = d.players.length >= 5 ? autoLineup(d.players, undefined, FIVES) : [];
+    const fivesOk = validLineup(best5, FIVES);
     const clsOpts = (v: number) => CLASSES.map(c => `<option value="${c}" ${c === v ? 'selected' : ''}>${pts(c)}</option>`).join('');
     const focusOpts = (v: Focus) => (Object.keys(FOCUS) as Focus[]).map(f => `<option value="${f}" ${f === v ? 'selected' : ''}>${FOCUS[f].label}</option>`).join('');
     const inp = 'style="background:#0d1117;color:#fff;border:1px solid #3a4356;border-radius:8px;padding:6px 8px;font:600 14px system-ui;min-height:36px"';
@@ -273,7 +279,8 @@ export class Ui {
         Focus: ${(Object.keys(FOCUS) as Focus[]).filter(f => f !== 'balanced').map(f => `<b>${FOCUS[f].label}</b>: ${FOCUS[f].desc.toLowerCase()}`).join(' · ')}.</p>
       ${rows}
       <div class="row"><button class="chip" data-a="add" ${d.players.length >= MAX_ROSTER ? 'disabled' : ''}>+ Add player (${d.players.length}/${MAX_ROSTER})</button></div>
-      ${probs.length ? `<div class="points bad">${probs.map(esc).join('<br>')}</div>` : `<div class="points">Starting four: ${pts(lineupPoints(best))} / ${pts(lineupLimit(best))} points</div>`}
+      ${probs.length ? `<div class="points bad">${probs.map(esc).join('<br>')}</div>` : `<div class="points">Starting four: ${pts(lineupPoints(best))} / ${pts(lineupLimit(best, STANDARD))} points ·
+        Fives: ${fivesOk ? `${pts(lineupPoints(best5))} / ${pts(lineupLimit(best5, FIVES))} points` : '<span style="color:#f87171">needs 5 players within 10.0</span>'}</div>`}
       <div class="row"><button class="btn alt" data-a="cancel">Cancel</button><button class="btn" data-a="save">Save team</button></div>`, {
       add: () => {
         const used = new Set(d.players.map(p => p.number));
@@ -316,15 +323,19 @@ export class Ui {
       `<button class="chip ${s[key] === v ? 'on' : ''}" data-a="set" data-v='${JSON.stringify([key, v])}'>${label}</button>`).join('');
     this.show(`
       <h2>Settings</h2>
+      <div class="setting">Format<div class="opts">${chips('format', [['Standard 4v4', 'standard'], ['Fives 5v5', 'fives']])}</div></div>
       <div class="setting">CPU difficulty<div class="opts">${chips('difficulty', [['Easy', 'easy'], ['Normal', 'normal'], ['Hard', 'hard']])}</div></div>
       <div class="setting">Rules<div class="opts">${chips('rules', [['Arcade', 'Arcade'], ['Sim (IWRF)', 'Sim']])}</div></div>
-      <div class="setting">Quarter length<div class="opts">${chips('quarterMinutes', [['2 min', 2], ['3 min', 3], ['5 min', 5], ['8 min (real)', 8]])}</div></div>
+      <div class="setting">Game length<div class="opts">${chips('quarterMinutes', this.settings.format === 'fives'
+        ? [['2 × 4 min', 2], ['2 × 6 min', 3], ['2 × 10 min', 5], ['2 × 12 min (real)', 8]]
+        : [['4 × 2 min', 2], ['4 × 3 min', 3], ['4 × 5 min', 5], ['4 × 8 min (real)', 8]])}</div></div>
       <div class="setting">Camera<div class="opts">${chips('camera', [['Full court', 'full'], ['Follow ball', 'follow']])}</div></div>
       <div class="setting">Sound<div class="opts">${chips('sound', [['On', true], ['Off', false]])}</div></div>
       <div class="setting">Screen shake &amp; flashes<div class="opts">${chips('effects', [['On', true], ['Reduced', false]])}</div></div>
       ${'vibrate' in navigator ? `<div class="setting">Vibration<div class="opts">${chips('vibration', [['On', true], ['Off', false]])}</div></div>` : ''}
       <div class="setting">Auto-subs for your team<div class="opts">${chips('autoSubs', [['On', true], ['Off', false]])}</div></div>
-      <p class="tag">Arcade: shorter penalties, only big spinning hits are fouls. Sim: strict IWRF calls. Changes apply from the next match (camera: now).</p>
+      <p class="tag">Fives (GBWR): 5 on court, 10.0 points, two halves, running clock except the last minutes of each half, 2 timeouts, max 3 in the penalty box.
+        Arcade: shorter penalties, only big spinning hits are fouls. Sim: strict IWRF calls. Changes apply from the next match (camera: now).</p>
       <div class="btns"><button class="btn" data-a="back">Done</button></div>`, {
       set: v => {
         const [k, val] = JSON.parse(v) as [keyof Settings, never];
@@ -351,7 +362,10 @@ export class Ui {
         • Hitting a chair <b>behind its rear axle</b> (spinning) is a foul: attackers lose the ball, defenders go to the penalty box.<br>
         • Every player has a classification from 0.5 to 3.5. Your four on court may total <b>8.0</b> (+0.5 per female player).
         Low pointers are heavy blockers, high pointers are fast ball carriers.<br>
-        • Each team has ${TIMEOUTS_PER_GAME} timeouts: call one when you have the ball, or at a dead ball. Substitutions happen at dead balls and timeouts.
+        • Timeouts (4 per team, 2 in Fives): call one when you have the ball, or at a dead ball. Substitutions happen at dead balls and timeouts.
+        <h3>Fives</h3>GB Wheelchair Rugby's five-a-side format: <b>5</b> players on court within <b>10.0</b> points (+0.5 per female player),
+        two halves, a running clock that only stops in the last minutes of each half, 2 timeouts per team, and no more than
+        <b>3</b> players in the penalty box at once — a 4th penalised player is substituted and waits off court.
       </div>
       <div class="btns"><button class="btn" data-a="back">Back</button></div>`, { back: () => this.back() });
   }
@@ -387,15 +401,16 @@ export class Ui {
   subs(m: Match) {
     const team = m.human.team, lineup = m.lineup(team), bench = m.bench(team);
     const out = this.subOut && lineup.includes(this.subOut) ? this.subOut : null;
-    const defs = lineup.map(c => c.def), total = lineupPoints(defs), limit = lineupLimit(defs);
+    const defs = lineup.map(c => c.def), total = lineupPoints(defs), limit = lineupLimit(defs, m.fmt);
     const bar = (v: number) => `<div class="bar ${v < 0.35 ? 'low' : ''}"><i style="width:${Math.round(v * 100)}%"></i></div>`;
     const onCards = lineup.map((c, i) => `<button class="pcard ${c === out ? 'sel' : ''}" data-a="out" data-v="${i}" ${c.penalty > 0 ? 'disabled' : ''}>
         <span class="num">#${c.def.number}</span> ${esc(c.def.name)}${c.def.female ? ' ♀' : ''} <span class="cls">${pts(c.cls)}</span>
         ${c.penalty > 0 ? '<br><small>In penalty box</small>' : ''}${bar(c.stamina)}</button>`).join('');
     const benchCards = bench.map((p, i) => {
-      const ok = !out || validLineup(defs.map(d => d === out.def ? p : d));
+      const waiting = m.waiting.has(p);
+      const ok = !waiting && (!out || validLineup(defs.map(d => d === out.def ? p : d), m.fmt));
       return `<button class="pcard ${ok ? '' : 'bad'}" data-a="in" data-v="${i}" ${out && ok ? '' : 'disabled'}>
-        <span class="num">#${p.number}</span> ${esc(p.name)}${p.female ? ' ♀' : ''} <span class="cls">${pts(p.cls)}</span>${bar(m.stamina.get(p) ?? 1)}</button>`;
+        <span class="num">#${p.number}</span> ${esc(p.name)}${p.female ? ' ♀' : ''} <span class="cls">${pts(p.cls)}</span>${waiting ? '<br><small>Waiting to serve penalty</small>' : ''}${bar(m.stamina.get(p) ?? 1)}</button>`;
     }).join('');
     this.show(`
       <h2>Substitutions</h2>
@@ -423,7 +438,7 @@ export class Ui {
     this.show(`
       <h2>FULL TIME</h2>
       <div class="score-big"><span style="color:${T[0].primary}">${T[0].short}</span> ${a} – ${b} <span style="color:${T[1].primary}">${T[1].short}</span></div>
-      <div class="tag">${esc(T[winner].name)} win${m.period > 4 ? ' in overtime' : ''}!</div>
+      <div class="tag">${esc(T[winner].name)} win${m.inOvertime ? ' in overtime' : ''}!</div>
       ${mvp ? `<div class="mvp">MVP: #${mvp.p.number} ${esc(mvp.p.name)} (${mvp.t.short}) — ${plural(mvp.s.goals, 'goal')}, ${plural(mvp.s.hits, 'big hit')}, ${plural(mvp.s.steals, 'steal')}</div>` : ''}
       <table><tr><th>Player</th><th>Goals</th><th>Big hits</th><th>Steals</th><th>Fouls</th></tr>${rows}</table>
       <div class="tag">Turnovers: ${T[0].short} ${m.turnovers[0]} · ${T[1].short} ${m.turnovers[1]} &nbsp; Fouls: ${T[0].short} ${m.fouls[0]} · ${T[1].short} ${m.fouls[1]}</div>

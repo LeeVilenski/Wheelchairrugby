@@ -12,14 +12,15 @@ export interface Cup {
   final: [number, number] | null;
   champion: number | null;
   quarterMinutes: number;
+  format?: 'standard' | 'fives';
 }
 
 const ROUNDS: [number, number][][] = [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[0, 3], [1, 2]]];
 const KEY = 'mb.cup';
 
-export function newCup(you: TeamDef, pool: TeamDef[], quarterMinutes: number): Cup {
+export function newCup(you: TeamDef, pool: TeamDef[], quarterMinutes: number, format: 'standard' | 'fives' = 'standard'): Cup {
   const others = pool.filter(t => t !== you).sort(() => Math.random() - 0.5).slice(0, 3);
-  return { teams: [you, ...others], results: [], round: 0, final: null, champion: null, quarterMinutes };
+  return { teams: [you, ...others], results: [], round: 0, final: null, champion: null, quarterMinutes, format };
 }
 export function loadCup(): Cup | null {
   try {
@@ -41,7 +42,7 @@ export function nextOpponent(c: Cup): number | null {
 
 export function simulate(c: Cup, a: number, b: number): Result {
   // Real wheelchair rugby averages roughly 1.6 goals per team per minute.
-  const mean = c.quarterMinutes * 4 * 1.6;
+  const mean = c.quarterMinutes * 4 * 1.6; // fives halves are ~twice a quarter, so the game length is similar
   let sa = Math.round(mean * (0.8 + Math.random() * 0.4)), sb = Math.round(mean * (0.8 + Math.random() * 0.4));
   if (sa === sb) Math.random() < 0.5 ? sa++ : sb++; // overtime
   return { a, b, sa, sb };

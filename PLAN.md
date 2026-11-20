@@ -27,3 +27,5 @@ Top-down 2D browser game. Real IWRF rules, arcade feel, customisable teams.
 
 ## Run
 `npm install && npm run dev`
+
+10. ✅ Fives format (GBWR CD-001 rules): 5v5, 10.0-point limit, 2 halves, running clock, 2 timeouts, penalty-box cap of 3
