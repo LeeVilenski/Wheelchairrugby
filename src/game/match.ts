@@ -417,6 +417,7 @@ export class Match {
 
     for (const h of collideChairs(this.onCourt)) if (this.onHit(h)) return;
 
+    if (this.rules.handsFouls && this.checkHolding(dt)) return;
     ball.update(dt);
     this.checkCatch();
     this.refereePossession(dt);
@@ -452,6 +453,16 @@ export class Match {
       if (this.chain.n >= 2) this.fx.text(h.x, h.y - 1.8, `CHAIN BLOCK x${this.chain.n}`, '#7dd3fc', 0.7);
       if (this.chain.n === 3) this.addHype(hitter.team, 0.05);
     }
+    // Huge hits can tip a chair over (light, fast chairs go over more easily).
+    if (this.rules.tipping && h.impact > 10 && victim.tipped <= 0 && Math.random() < Math.min(0.5, (h.impact - 10) / 10 * (1.3 - victim.mass * 0.5))) {
+      victim.tipped = 1.6;
+      this.fx.shout("TIPPED OVER!", "#ffe14d", true);
+      this.onShake(0.5); this.sfx('hit', 9);
+      if (ball.holder === victim) {
+        ball.holder = null; ball.vx = victim.vx + (Math.random() - 0.5) * 3; ball.vy = victim.vy + (Math.random() - 0.5) * 3;
+        ball.vz = 2; ball.lockChair = victim; ball.lockTime = 0.6;
+      }
+    }
     if (big && this.fx.texts.length < 2) this.fx.text(h.x, h.y - 1, pick(['SMASH!', 'BOOM!', 'WRECKED!', 'CRUNCH!']), '#ffe14d', 0.9);
     const carrier = ball.holder === h.a ? h.a : ball.holder === h.b ? h.b : null;
     // Strip: a defender making contact can knock the ball out of the carrier's hands (legal in the real game).
@@ -461,6 +472,11 @@ export class Match {
       const human = def.human && !this.demo;
       const p = (human ? 0.22 : 0.04 + this.skill[def.team] * 0.22) * (facing > 0 ? 1 : 0.3) * (1.2 - carrier.cls * 0.12);
       this.stripGap = 0.4;
+      // Reaching in from the side or behind risks an illegal-use-of-hands call.
+      if (this.rules.handsFouls && facing <= 0 && def.team !== this.possTeam && Math.random() < 0.12) {
+        this.foul(def, 'Illegal use of hands');
+        return true;
+      }
       if (Math.random() < p) {
         ball.holder = null;
         const a = Math.atan2(carrier.y - def.y, carrier.x - def.x) + (Math.random() - 0.5);
@@ -481,12 +497,25 @@ export class Match {
     return false;
   }
 
+  /** Holding: a defender stuck to a nearly stationary carrier for a long time draws a call. */
+  private checkHolding(dt: number): boolean {
+    const h = this.ball.holder;
+    if (!h) return false;
+    const stuck = this.team(1 - h.team).find(d => dist(d, h.x, h.y) < d.radius + h.radius + 0.08 && d.tipped <= 0);
+    h.pinTime = stuck && h.speed < 1.0 ? h.pinTime + dt : 0;
+    if (h.pinTime > 2) {
+      h.pinTime = 0;
+      if (stuck && Math.random() < 0.35) { this.foul(stuck, 'Holding'); return true; }
+    }
+    return false;
+  }
+
   private checkCatch() {
     const ball = this.ball;
     if (ball.holder || ball.z >= 1.7) return;
     let best: Chair | null = null, bd = Infinity;
     for (const c of this.onCourt) {
-      if (c === ball.lockChair && ball.lockTime > 0) continue;
+      if ((c === ball.lockChair && ball.lockTime > 0) || c.tipped > 0) continue;
       const d = dist(c, ball.x, ball.y);
       if (d < c.catchRadius && d < bd) { bd = d; best = c; }
     }

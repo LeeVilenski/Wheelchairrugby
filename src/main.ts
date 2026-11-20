@@ -20,7 +20,7 @@ addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
 let paused = false;
 (window as unknown as { app: unknown }).app = { get match() { return match; } }; // handy for debugging
 
-function rulesFrom(st: Settings, format = st.format, minutes = st.quarterMinutes): RuleSet { return buildRules(st.rules, format, minutes); }
+function rulesFrom(st: Settings, format = st.format, minutes = st.quarterMinutes): RuleSet { return buildRules(st.rules, format, minutes, st.custom); }
 
 const DIFF = { easy: { skill: 0.25, speed: 0.88 }, normal: { skill: 0.6, speed: 0.95 }, hard: { skill: 1, speed: 1 } };
 function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false) {
@@ -158,11 +158,11 @@ function drawHud() {
   ctx.beginPath(); ctx.roundRect(W / 2 - 95, 52, 190, 24, 8); ctx.fill();
   ctx.font = '800 13px ui-monospace, monospace'; ctx.fillStyle = '#fff';
   ctx.fillText(`${per}  ${mm}:${String(ss).padStart(2, '0')}`, W / 2 - 40, 64);
-  if (match.possTeam >= 0) {
+  if (match.possTeam >= 0 && Number.isFinite(match.shotClock)) {
     const sc = Math.ceil(Math.max(0, match.shotClock));
     ctx.fillStyle = sc <= 10 ? '#ff4040' : '#ffe14d';
     ctx.fillText(`⏱${sc}`, W / 2 + 30, 64);
-    if (!match.crossedHalf) {
+    if (!match.crossedHalf && Number.isFinite(match.backcourtClock)) {
       ctx.fillStyle = match.backcourtClock <= 4 ? '#ff4040' : '#7dd3fc';
       ctx.fillText(`½${Math.ceil(Math.max(0, match.backcourtClock))}`, W / 2 + 70, 64);
     }

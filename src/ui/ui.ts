@@ -4,9 +4,11 @@ import { CLASSES, MAX_ROSTER, allTeams, decodeTeam, deleteTeam, encodeTeam, isCu
 import { Chair } from '../entities/chair';
 import { loadCup, newCup, nextOpponent, recordResult, saveCup, standings, type Cup } from '../game/cup';
 import type { Match } from '../game/match';
+import { DEFAULT_CUSTOM, type CustomRules } from '../game/rules';
 
 export interface Settings {
-  rules: 'Arcade' | 'Sim';
+  rules: 'Arcade' | 'Sim' | 'Custom';
+  custom: CustomRules;
   quarterMinutes: number;
   camera: 'full' | 'follow';
   autoSubs: boolean;
@@ -17,10 +19,14 @@ export interface Settings {
   seenHelp: boolean;
   format: 'standard' | 'fives';
 }
-const DEFAULTS: Settings = { rules: 'Arcade', quarterMinutes: 3, camera: 'full', autoSubs: true, sound: true, difficulty: 'normal', effects: true, vibration: true, seenHelp: false, format: 'standard' };
+const DEFAULTS: Settings = { custom: { ...DEFAULT_CUSTOM }, rules: 'Arcade', quarterMinutes: 3, camera: 'full', autoSubs: true, sound: true, difficulty: 'normal', effects: true, vibration: true, seenHelp: false, format: 'standard' };
 
 export function loadSettings(): Settings {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('mb.settings') || '{}') }; } catch { return { ...DEFAULTS }; }
+  try {
+    const s = { ...DEFAULTS, ...JSON.parse(localStorage.getItem('mb.settings') || '{}') };
+    s.custom = { ...DEFAULT_CUSTOM, ...s.custom };
+    return s;
+  } catch { return { ...DEFAULTS, custom: { ...DEFAULT_CUSTOM } }; }
 }
 export function saveSettings(s: Settings) { try { localStorage.setItem('mb.settings', JSON.stringify(s)); } catch { /* private mode */ } }
 
@@ -325,7 +331,8 @@ export class Ui {
       <h2>Settings</h2>
       <div class="setting">Format<div class="opts">${chips('format', [['Standard 4v4', 'standard'], ['Fives 5v5', 'fives']])}</div></div>
       <div class="setting">CPU difficulty<div class="opts">${chips('difficulty', [['Easy', 'easy'], ['Normal', 'normal'], ['Hard', 'hard']])}</div></div>
-      <div class="setting">Rules<div class="opts">${chips('rules', [['Arcade', 'Arcade'], ['Sim (IWRF)', 'Sim']])}</div></div>
+      <div class="setting">Rules<div class="opts">${chips('rules', [['Arcade', 'Arcade'], ['Sim (IWRF)', 'Sim'], ['Custom', 'Custom']])}</div></div>
+      ${s.rules === 'Custom' ? this.customRows() : ''}
       <div class="setting">Game length<div class="opts">${chips('quarterMinutes', this.settings.format === 'fives'
         ? [['2 × 4 min', 2], ['2 × 6 min', 3], ['2 × 10 min', 5], ['2 × 12 min (real)', 8]]
         : [['4 × 2 min', 2], ['4 × 3 min', 3], ['4 × 5 min', 5], ['4 × 8 min (real)', 8]])}</div></div>
@@ -338,12 +345,27 @@ export class Ui {
         Arcade: shorter penalties, only big spinning hits are fouls. Sim: strict IWRF calls. Changes apply from the next match (camera: now).</p>
       <div class="btns"><button class="btn" data-a="back">Done</button></div>`, {
       set: v => {
-        const [k, val] = JSON.parse(v) as [keyof Settings, never];
-        (this.settings[k] as unknown) = val;
+        const [k, val] = JSON.parse(v) as [string, never];
+        if (k.startsWith('custom.')) (this.settings.custom as unknown as Record<string, unknown>)[k.slice(7)] = val;
+        else (this.settings[k as keyof Settings] as unknown) = val;
         saveSettings(this.settings); this.hooks.settingsChanged(this.settings); this.settingsScreen();
       },
       back: () => this.back(),
     });
+  }
+
+  private customRows() {
+    const c = this.settings.custom;
+    const row = (label: string, key: keyof CustomRules, opts: [string, unknown][]) =>
+      `<div class="setting" style="margin-left:16px;font-weight:600">${label}<div class="opts">${opts.map(([l, v]) =>
+        `<button class="chip ${c[key] === v ? 'on' : ''}" data-a="set" data-v='${JSON.stringify(['custom.' + key, v])}'>${l}</button>`).join('')}</div></div>`;
+    const onOff: [string, unknown][] = [['On', true], ['Off', false]];
+    return [
+      row('Based on', 'base', [['Arcade', 'Arcade'], ['Sim', 'Sim']]),
+      row('10 s dribble', 'dribble', onOff), row('40 s shot clock', 'shotClock', onOff), row('12 s half court', 'backcourt', onOff),
+      row('Key rules', 'keyRules', onOff), row('Spinning fouls', 'spinning', onOff), row('Holding / hands fouls', 'handsFouls', onOff),
+      row('Chairs tip over', 'tipping', onOff), row('Penalty length', 'longPenalties', [['30 s', false], ['60 s', true]]),
+    ].join('');
   }
 
   helpScreen() {

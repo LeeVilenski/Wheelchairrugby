@@ -15,7 +15,9 @@ export class Chair {
   inOwnKey = false;
   penalty = 0;           // seconds left in the penalty box; > 0 = off court
   boost = 0;
-  speedMul = 1;          // difficulty handicap for CPU teams
+  speedMul = 1;
+  tipped = 0;            // seconds left lying on its side after a huge hit
+  pinTime = 0;           // seconds a defender has been stuck to this carrier          // difficulty handicap for CPU teams
   aiT = 0;               // AI re-plan timer
   aiCtl: Controls | null = null;             // 0..1: hype / on-fire speed and power boost
 
@@ -51,6 +53,14 @@ export class Chair {
   get isDefensive() { return this.cls <= 1.5; }
 
   update(dt: number, c: Controls, holding: boolean) {
+    if (this.tipped > 0) {
+      // Tipped over: slide to a stop, then the player rights the chair.
+      this.tipped -= dt;
+      const k = Math.max(0, 1 - 5 * dt); this.vx *= k; this.vy *= k;
+      this.x += this.vx * dt; this.y += this.vy * dt;
+      this.collideWalls();
+      return;
+    }
     const fx = Math.cos(this.heading), fy = Math.sin(this.heading);
     const turnSlow = 1 / (1 + this.speed * 0.08);
 
@@ -115,6 +125,12 @@ export class Chair {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.heading);
+    if (this.tipped > 0) {
+      // Lying on its side: squash across the axle, then pop back up in the last 0.3 s.
+      const up = Math.max(0, 0.3 - this.tipped) / 0.3;
+      ctx.scale(1, 0.45 + up * 0.55);
+      ctx.rotate(Math.sin(performance.now() / 90) * 0.04 * (1 - up));
+    }
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.beginPath(); ctx.ellipse(0.06, 0.08, r * 1.05, r * 0.95, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#222';
