@@ -1,6 +1,6 @@
 import { COURT } from '../game/court';
 import type { Controls } from '../core/input';
-import type { PlayerDef, TeamDef } from '../data/teams';
+import { FOCUS, type PlayerDef, type TeamDef } from '../data/teams';
 
 // Top-down wheelchair with momentum: it can only roll along its heading,
 // so sideways velocity is scrubbed by tyre grip.
@@ -14,6 +14,7 @@ export class Chair {
   keyEnteredAt = 0;      // when this chair entered its own key (defending)
   inOwnKey = false;
   penalty = 0;           // seconds left in the penalty box; > 0 = off court
+  boost = 0;             // 0..1: hype / on-fire speed and power boost
 
   // Stats derived from classification: low pointers are heavy blockers, high pointers fast ball carriers.
   readonly cls: number;
@@ -32,15 +33,15 @@ export class Chair {
     public x: number, public y: number, public heading: number,
     public team: number, public teamDef: TeamDef, public def: PlayerDef,
   ) {
-    const c = def.cls;
+    const c = def.cls, f = FOCUS[def.focus ?? 'balanced'];
     this.cls = c;
     this.radius = 0.62 - c * 0.025;
-    this.mass = 1.35 - c * 0.1;
-    this.maxSpeed = 5.8 + c * 0.45;
-    this.cruiseAccel = 3.8 + c * 0.4;
-    this.turnRate = 3.4 + c * 0.35;
-    this.pushImpulse = 2.1 + c * 0.2;
-    this.catchRadius = 0.7 + c * 0.07;
+    this.mass = 1.35 - c * 0.1 + f.mass;
+    this.maxSpeed = 5.8 + c * 0.45 + f.speed;
+    this.cruiseAccel = 3.8 + c * 0.4 + f.accel;
+    this.turnRate = 3.4 + c * 0.35 + f.turn;
+    this.pushImpulse = 2.1 + c * 0.2 + f.push;
+    this.catchRadius = 0.7 + c * 0.07 + f.hands;
   }
 
   get speed() { return Math.hypot(this.vx, this.vy); }
@@ -71,10 +72,10 @@ export class Chair {
 
     this.pushCooldown -= dt;
     if (c.push && this.pushCooldown <= 0 && this.stamina > 0.1) {
-      this.vx += fx * this.pushImpulse;
-      this.vy += fy * this.pushImpulse;
+      this.vx += fx * this.pushImpulse * (1 + this.boost * 0.35);
+      this.vy += fy * this.pushImpulse * (1 + this.boost * 0.35);
       this.stamina -= 0.07;
-      this.pushCooldown = 0.35;
+      this.pushCooldown = 0.35 - this.boost * 0.15;
     }
 
     const lat = -this.vx * fy + this.vy * fx;
@@ -86,7 +87,7 @@ export class Chair {
     this.vx *= k; this.vy *= k;
 
     const s = this.speed;
-    const max = this.maxSpeed * (holding ? 0.95 : 1) * (this.pushCooldown > 0 ? 1.25 : 1);
+    const max = this.maxSpeed * (holding ? 0.95 : 1) * (this.pushCooldown > 0 ? 1.25 : 1) * (1 + this.boost * 0.3);
     if (s > max) { this.vx *= max / s; this.vy *= max / s; }
 
     this.x += this.vx * dt;

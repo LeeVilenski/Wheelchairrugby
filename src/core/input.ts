@@ -6,9 +6,10 @@ export interface Controls {
   brake: boolean;
   pass: boolean;         // pass, or switch player when not holding the ball
   bounce: boolean;
+  hype: boolean;
 }
 
-export const IDLE: Controls = { turn: 0, throttle: 0, aim: null, push: false, brake: false, pass: false, bounce: false };
+export const IDLE: Controls = { turn: 0, throttle: 0, aim: null, push: false, brake: false, pass: false, bounce: false, hype: false };
 
 interface Button { id: string; label: string; x: number; y: number; r: number; held: boolean; pointer: number | null; }
 
@@ -25,6 +26,7 @@ export class Input {
     { id: 'brake', label: 'BRAKE', x: 0, y: 0, r: 36, held: false, pointer: null },
     { id: 'pass', label: 'PASS', x: 0, y: 0, r: 40, held: false, pointer: null },
     { id: 'bounce', label: 'BOUNCE', x: 0, y: 0, r: 32, held: false, pointer: null },
+    { id: 'hype', label: 'HYPE', x: 0, y: 0, r: 30, held: false, pointer: null },
   ];
   /** Screen-space tap targets owned by the UI (e.g. camera toggle). */
   tapTargets: { x: number; y: number; w: number; h: number; onTap: () => void }[] = [];
@@ -45,7 +47,8 @@ export class Input {
 
   layout(w: number, h: number) {
     const s = Math.min(1.2, Math.max(0.8, Math.min(w, h) / 420));
-    const [push, brake, pass, bounce] = this.buttons;
+    const [push, brake, pass, bounce, hype] = this.buttons;
+    hype.r = 30 * s; hype.x = w - 165 * s; hype.y = h - 235 * s;
     push.r = 46 * s; brake.r = 34 * s; pass.r = 40 * s; bounce.r = 32 * s;
     push.x = w - 80 * s; push.y = h - 85 * s;
     brake.x = w - 185 * s; brake.y = h - 62 * s;
@@ -96,6 +99,7 @@ export class Input {
       brake: k('ShiftLeft', 'ShiftRight'),
       pass: this.wasPressed('KeyE') || this.wasPressed('KeyJ'),
       bounce: this.wasPressed('KeyQ') || this.wasPressed('KeyK'),
+      hype: this.wasPressed('KeyF') || this.wasPressed('KeyL'),
     };
 
     // Touch stick: aim + throttle by distance
@@ -108,6 +112,7 @@ export class Input {
     if (this.buttons[1].held) c.brake = true;
     if (this.wasPressed('btn:pass')) c.pass = true;
     if (this.wasPressed('btn:bounce')) c.bounce = true;
+    if (this.wasPressed('btn:hype')) c.hype = true;
 
     // Gamepad: left stick aim, A push, B/RT brake
     const gp = navigator.getGamepads?.().find(g => g);
@@ -121,6 +126,9 @@ export class Input {
       if (x && !this.gpX) c.pass = true;
       if (y && !this.gpY) c.bounce = true;
       this.gpX = x; this.gpY = y;
+      const rb = !!gp.buttons[5]?.pressed;
+      if (rb && !this.gpRB) c.hype = true;
+      this.gpRB = rb;
       const st = !!gp.buttons[9]?.pressed;
       if (st && !this.gpStart) this.pressed.add('pad:start');
       this.gpStart = st;
@@ -128,7 +136,9 @@ export class Input {
     }
     return c;
   }
-  private gpA = false; private gpX = false; private gpY = false; private gpStart = false;
+  private gpA = false; private gpX = false; private gpY = false; private gpStart = false; private gpRB = false;
+  /** 0..1 hype charge, so the HYPE button can glow when ready. */
+  hypeLevel = 0;
 
   drawTouch(ctx: CanvasRenderingContext2D) {
     if (!this.touchMode) return;
@@ -151,6 +161,19 @@ export class Input {
       ctx.fillText('Touch & drag here to steer', 20, this.canvas.clientHeight - 30);
     }
     for (const b of this.buttons) {
+      if (b.id === 'hype') {
+        const ready = this.hypeLevel >= 1;
+        ctx.save();
+        ctx.globalAlpha = ready ? 0.75 + Math.sin(performance.now() / 120) * 0.25 : 0.5;
+        ctx.fillStyle = ready ? '#ff5a1f' : 'rgba(255,255,255,0.1)';
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#ffb02e'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * this.hypeLevel); ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = '#fff'; ctx.font = `900 ${Math.round(b.r * 0.4)}px system-ui`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🔥', b.x, b.y);
+        continue;
+      }
       ctx.fillStyle = b.held ? 'rgba(255,200,60,0.7)' : 'rgba(255,255,255,0.18)';
       ctx.strokeStyle = 'rgba(255,255,255,0.6)';
       ctx.lineWidth = 2;

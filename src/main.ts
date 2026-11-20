@@ -5,12 +5,16 @@ import { Match } from './game/match';
 import { DEFAULT_TEAMS, type TeamDef } from './data/teams';
 import { RULES, type RuleSet } from './game/rules';
 import { Ui, type Settings } from './ui/ui';
+import { Audio } from './core/audio';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 const input = new Input(canvas);
 const camera = new Camera();
 let match: Match;
+const audio = new Audio();
+const unlock = () => audio.unlock();
+addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
 let paused = false;
 (window as unknown as { app: unknown }).app = { get match() { return match; } }; // handy for debugging
 
@@ -21,6 +25,7 @@ function newMatch(home: TeamDef, away: TeamDef, demo: boolean) {
   match.demo = demo;
   match.autoSubs = [demo || ui.settings.autoSubs, true];
   match.onShake = a => camera.addShake(a);
+  match.sfx = (n, v) => { if (!match.demo) audio.play(n, v); };
   match.onFullTime = () => {
     if (match.demo) { setTimeout(() => startDemo(), 4000); return; }
     setTimeout(() => { paused = true; ui.fullTime(match); }, 2500);
@@ -37,9 +42,10 @@ const ui = new Ui({
   resume: () => { ui.close(); paused = false; },
   quit: () => { startDemo(); ui.title(); },
   rematch: () => { newMatch(match.teams[0], match.teams[1], false); ui.close(); paused = false; },
-  settingsChanged: st => { camera.mode = st.camera; },
+  settingsChanged: st => { camera.mode = st.camera; audio.setMuted(!st.sound); },
 });
 camera.mode = ui.settings.camera;
+audio.setMuted(!ui.settings.sound);
 
 function openPause() {
   if (match.demo || ui.isOpen || match.state.kind === 'over') return;
@@ -71,12 +77,20 @@ function frame(now: number) {
   while (acc >= STEP) {
     if (input.wasPressed('KeyC')) camera.toggle();
     const ctl = input.read() ?? IDLE;
+    if (input.wasPressed('KeyM')) { ui.settings.sound = !ui.settings.sound; audio.setMuted(!ui.settings.sound); }
     if (input.wasPressed('Escape') || input.wasPressed('KeyP') || input.wasPressed('pad:start')) openPause();
     if (!paused) match.update(STEP, ctl);
     input.endFrame();
     acc -= STEP;
   }
   camera.update(1 / 60, W, H, match.ball.x, match.ball.y);
+  // Crowd noise follows the action: rises near goal, late in the shot clock and during hype.
+  {
+    const h = match.ball.holder, near = h ? Math.max(0, 1 - Math.abs(match.goalX(h.team) - h.x) / 10) : 0;
+    const live = match.state.kind === 'play' && !paused && !match.demo;
+    audio.crowd(live ? 0.15 + near * 0.5 + (match.shotClock < 8 ? 0.2 : 0) + (match.hypeTime[0] > 0 || match.hypeTime[1] > 0 ? 0.3 : 0) : 0.05);
+  }
+  input.hypeLevel = match.hype[match.human.team];
   render();
   requestAnimationFrame(frame);
 }
@@ -91,6 +105,7 @@ function render() {
   match.draw(ctx);
   ctx.restore();
   if (!demo) { drawHud(); input.drawTouch(ctx); }
+  match.fx.drawScreen(ctx, W, H);
 }
 
 function drawCourtLayer() { drawCourt(ctx); }
@@ -137,6 +152,20 @@ function drawHud() {
   ctx.fillStyle = '#fff'; ctx.font = '700 12px system-ui'; ctx.textAlign = 'left';
   ctx.fillText(`#${p.def.number} ${p.def.name} (${p.cls.toFixed(1)})`, 18, 22);
 
+  // Hype meter
+  const ht = match.human.team, hv = match.hypeTime[ht] > 0 ? match.hypeTime[ht] / 6 : match.hype[ht];
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(12, 36, 164, 14);
+  const ready = match.hype[ht] >= 1 || match.hypeTime[ht] > 0;
+  ctx.fillStyle = ready ? `hsl(${20 + Math.sin(performance.now() / 100) * 15},100%,55%)` : '#c2410c';
+  ctx.fillRect(14, 38, 160 * hv, 10);
+  ctx.fillStyle = '#fff'; ctx.font = '800 10px system-ui'; ctx.textAlign = 'left';
+  ctx.fillText(match.hypeTime[ht] > 0 ? '🔥 HYPE!' : match.hype[ht] >= 1 ? `🔥 READY: ${input.touchMode ? 'TAP 🔥' : 'PRESS F'}` : '🔥 HYPE', 18, 43);
+  // On fire badges by the score
+  for (const t of [0, 1]) if (match.onFire[t]) {
+    ctx.font = '20px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText('🔥', t === 0 ? W / 2 - 165 : W / 2 + 165, 30);
+  }
+
   // Camera toggle
   const x = W - camBtn.w - 12;
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -167,7 +196,7 @@ function drawHud() {
 
   if (!input.touchMode) {
     ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.textAlign = 'left'; ctx.font = '600 12px system-ui';
-    ctx.fillText('W/↑ roll · A/D turn · SPACE push · E pass/switch · Q bounce · SHIFT brake · C camera · Esc pause', 12, H - 16);
+    ctx.fillText('W/↑ roll · A/D turn · SPACE push · E pass/switch · Q bounce · SHIFT brake · F hype · C camera · M mute · Esc pause', 12, H - 16);
   }
 }
 

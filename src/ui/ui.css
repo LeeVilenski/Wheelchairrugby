@@ -49,3 +49,8 @@ tr:nth-child(even) td { background: rgba(255,255,255,.04); }
 .help h3 { margin: 6px 0; color: #ffe14d; }
 @media (max-width: 560px) { .teams { grid-template-columns: 1fr; } .vs { display: none; } }
 @media (max-height: 460px) { .panel { gap: 8px; } .btn { min-height: 42px; } .logo { font-size: 44px; } }
+
+.prow { display: grid; grid-template-columns: 64px minmax(80px, 1fr) 72px 110px 44px 52px 40px; gap: 8px; align-items: center;
+  padding: 8px 10px; background: #1a2030; border-radius: 10px; }
+.prow input:not([type=checkbox]), .prow select { width: 100%; box-sizing: border-box; }
+@media (max-width: 640px) { .prow { grid-template-columns: 56px 1fr 68px 40px; } .prow select[data-f$=focus] { grid-column: 2 / 3; } }

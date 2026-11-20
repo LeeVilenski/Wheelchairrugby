@@ -6,6 +6,7 @@ import { COURT } from './court';
 import { IDLE, type Controls } from '../core/input';
 import { autoLineup, validLineup, type PlayerDef, type TeamDef } from '../data/teams';
 import { aiControls } from '../ai/ai';
+import type { SfxName } from '../core/audio';
 import { RULES, type RuleSet } from './rules';
 
 const PASS_SPEED = 13;
@@ -42,6 +43,17 @@ export class Match {
   demo = false;                                // attract mode: CPU plays both sides
   autoSubs = [true, true];                     // CPU manages substitutions for that team
   onFullTime: () => void = () => {};
+  sfx: (name: SfxName, v?: number) => void = () => {};
+
+  // --- Arcade juice ---
+  hype = [0, 0];            // 0..1 charge per team
+  hypeTime = [0, 0];        // seconds of HYPE left
+  streak = { team: -1, n: 0 };
+  onFire = [false, false];  // 3 goals in a row until the other team scores
+  slowmo = 0;               // real seconds of slow motion left
+  slowScale = 1;
+  chain = { team: -1, n: 0, t: 0 };
+  private hitSoundGap = 0;
   onDeadBall: () => void = () => {};
 
   constructor(public teams: [TeamDef, TeamDef], rules: RuleSet = RULES.Arcade) {
@@ -59,6 +71,7 @@ export class Match {
     this.human = undefined as unknown as Chair;
     this.setHuman(this.team(0)[0]);
     this.timeouts = [TIMEOUTS_PER_GAME, TIMEOUTS_PER_GAME]; this.turnovers = [0, 0];
+    this.hype = [0, 0]; this.hypeTime = [0, 0]; this.onFire = [false, false]; this.streak = { team: -1, n: 0 };
     this.score = [0, 0]; this.fouls = [0, 0];
     this.period = 1; this.clock = this.rules.quarterSeconds;
     for (const c of this.chairs) { c.penalty = 0; c.stamina = 1; }
@@ -163,6 +176,20 @@ export class Match {
     }
   }
 
+  addHype(team: number, amt: number) {
+    if (this.hypeTime[team] > 0) return;
+    const before = this.hype[team];
+    this.hype[team] = Math.min(1, before + amt);
+    if (before < 1 && this.hype[team] >= 1 && team === this.human.team && !this.demo) this.fx.text(this.human.x, this.human.y - 1.6, 'HYPE READY!', '#ff8a3d', 0.6);
+  }
+  useHype(team: number) {
+    if (this.hype[team] < 1 || this.hypeTime[team] > 0) return;
+    this.hype[team] = 0; this.hypeTime[team] = 6;
+    this.fx.shout(`${this.teams[team].short} HYPE TIME!`, '#ff8a3d', true);
+    this.fx.flash = 0.6; this.sfx('hype');
+  }
+  slowMotion(seconds: number, scale: number) { this.slowmo = seconds; this.slowScale = scale; }
+
   /** Teams may call a timeout with possession of the ball, or at a dead ball. */
   canTimeout(team: number) {
     return this.timeouts[team] > 0 && this.state.kind !== 'over' && (this.isDead || this.ball.holder?.team === team);
@@ -186,6 +213,7 @@ export class Match {
   turnover(toTeam: number, reason: string, x: number, y: number) {
     const ball = this.ball;
     this.turnovers[1 - toTeam]++;
+    this.sfx('whistle');
     ball.holder = null; ball.vx = ball.vy = ball.vz = 0;
     this.showBanner('TURNOVER', reason, this.teams[toTeam].primary);
     this.deadBall(1.3, () => {
@@ -205,6 +233,7 @@ export class Match {
   foul(c: Chair, what: string) {
     this.fouls[c.team]++;
     this.stat(c.def).fouls++;
+    this.sfx('whistle');
     const t = this.teams[c.team];
     this.fx.text(c.x, c.y - 1.3, 'FOUL!', '#ff4040', 0.8);
     if (c.team === this.possTeam) return this.turnover(1 - c.team, `Offensive foul: ${what} (#${c.def.number})`, c.x, c.y);
@@ -270,6 +299,8 @@ export class Match {
 
   update(dt: number, human: Controls) {
     const ball = this.ball;
+    // Slow motion / hit-stop: real time runs out, game time is scaled.
+    if (this.slowmo > 0) { this.slowmo -= dt; dt *= this.slowScale; }
     this.fx.update(dt);
     if (this.banner && (this.banner.life -= dt) <= 0) this.banner = null;
     if (this.state.kind === 'over') return;
@@ -297,14 +328,32 @@ export class Match {
       if (lu.reduce((s, c) => s + c.stamina, 0) / lu.length < 0.3) { this.callTimeout(t); return; }
     }
 
+    for (const t of [0, 1]) {
+      if (this.hypeTime[t] > 0) this.hypeTime[t] -= dt;
+      // CPU teams use HYPE on the attack once over half way.
+      const h = ball.holder;
+      if ((this.demo || t !== this.human.team) && this.hype[t] >= 1 && h?.team === t && (h.x - COURT.length / 2) * this.attackDir(t) > 0) this.useHype(t);
+    }
+    if (this.chain.t > 0) this.chain.t -= dt;
+    this.hitSoundGap -= dt;
+
     for (const c of this.onCourt) {
       const ctl = c.human && !this.demo ? human : aiControls(c, this);
+      if (c.human && !this.demo && ctl.hype) this.useHype(c.team);
+      c.boost = this.hypeTime[c.team] > 0 ? 1 : this.onFire[c.team] ? 0.3 : 0;
       const holding = ball.holder === c;
+      const cd = c.pushCooldown;
       c.update(dt, ctl, holding);
+      if (c.pushCooldown > cd + 0.1) {
+        if (c.human || Math.random() < 0.3) this.sfx('push', c.human ? 1 : 0.3);
+        for (let i = 0; i < 3; i++) this.fx.trail(c.x - Math.cos(c.heading) * 0.4 + (Math.random() - 0.5) * 0.8, c.y - Math.sin(c.heading) * 0.4 + (Math.random() - 0.5) * 0.8);
+      }
+      if (c.speed > 5) this.fx.trail(c.x - Math.cos(c.heading) * c.radius * 0.5, c.y - Math.sin(c.heading) * c.radius * 0.5);
+      if (c.boost >= 1 && c.speed > 2) this.fx.flame(c.x, c.y, c.vx, c.vy);
       if (holding) {
         c.holdTime += dt;
-        if (ctl.pass) this.pass(c, ctl.aim ?? c.heading);
-        else if (ctl.bounce) this.bounce(c);
+        if (ctl.pass) { this.pass(c, ctl.aim ?? c.heading); this.sfx('pass'); }
+        else if (ctl.bounce) { this.bounce(c); this.sfx('bounce'); }
       } else if (c.human && ctl.pass) {
         this.switchHuman();
       }
@@ -324,6 +373,7 @@ export class Match {
     const big = h.impact > 4;
     this.fx.sparks(h.x, h.y, h.impact);
     this.onShake(h.impact * (big ? 0.08 : 0.03));
+    if (h.impact > 2.5 || this.hitSoundGap <= 0) { this.sfx('hit', h.impact); this.hitSoundGap = 0.08; }
     if (h.a.team === h.b.team) return false;
 
     // Spinning: contact behind the rear axle of the victim.
@@ -335,10 +385,19 @@ export class Match {
       return true;
     }
 
-    if (big) this.stat((h.aSpeed >= h.bSpeed ? h.a : h.b).def).hits++;
+    if (big) {
+      this.stat(hitter.def).hits++;
+      this.addHype(hitter.team, 0.025);
+      if (h.impact > 7.5 && this.fx.shout(pick(['WHAT A HIT!', 'DEMOLISHED!', 'OH MY!', 'FLATTENED!']))) { this.slowMotion(0.12, 0.08); this.fx.flash = 0.35; }
+      // Chain blocks: big hits by the same team in quick succession.
+      if (this.chain.team === hitter.team && this.chain.t > 0) this.chain.n++; else this.chain = { team: hitter.team, n: 1, t: 0 };
+      this.chain.t = 2.5;
+      if (this.chain.n >= 2) this.fx.text(h.x, h.y - 1.8, `CHAIN BLOCK x${this.chain.n}`, '#7dd3fc', 0.7);
+      if (this.chain.n === 3) this.addHype(hitter.team, 0.05);
+    }
     if (big && this.fx.texts.length < 2) this.fx.text(h.x, h.y - 1, pick(['SMASH!', 'BOOM!', 'WRECKED!', 'CRUNCH!']), '#ffe14d', 0.9);
     const carrier = ball.holder === h.a ? h.a : ball.holder === h.b ? h.b : null;
-    if (carrier && h.impact > 4.2 && Math.random() < 0.45) {
+    if (carrier && carrier !== hitter && h.impact > (hitter.boost >= 1 ? 3 : 4.2) && (hitter.boost >= 1 || Math.random() < 0.45)) {
       const s = carrier === h.a ? -1 : 1;
       ball.holder = null;
       ball.vx = carrier.vx + s * h.nx * 3 + (Math.random() - 0.5) * 2;
@@ -361,9 +420,11 @@ export class Match {
     if (best) {
       const flying = Math.hypot(ball.vx, ball.vy) > 6;
       const lastTeam = ball.lockChair?.team;
-      if (this.possTeam >= 0 && this.possTeam !== best.team) this.stat(best.def).steals++;
+      const steal = this.possTeam >= 0 && this.possTeam !== best.team;
+      if (steal) { this.stat(best.def).steals++; this.addHype(best.team, 0.04); }
       this.give(best);
-      if (flying && lastTeam !== undefined && lastTeam !== best.team) this.fx.text(best.x, best.y - 1.2, 'PICKED OFF!', '#7dd3fc', 0.7);
+      if (flying && lastTeam !== undefined && lastTeam !== best.team) { this.fx.shout('INTERCEPTED!', '#7dd3fc'); this.addHype(best.team, 0.03); }
+      this.sfx(steal ? 'steal' : 'catch');
     }
   }
 
@@ -414,6 +475,7 @@ export class Match {
 
   private endPeriod() {
     this.clock = 0;
+    this.sfx('buzzer');
     this.ball.holder = null;
     const [a, b] = this.score, T = this.teams;
     if (this.period >= 4 && a !== b) {
@@ -444,6 +506,15 @@ export class Match {
   goal(scorer: Chair) {
     this.score[scorer.team]++;
     this.stat(scorer.def).goals++;
+    this.sfx('goal');
+    this.slowMotion(0.9, 0.3);
+    this.fx.flash = 0.5;
+    this.addHype(scorer.team, 0.08);
+    const team = scorer.team;
+    if (this.streak.team === team) this.streak.n++; else this.streak = { team, n: 1 };
+    if (this.onFire[1 - team]) { this.onFire[1 - team] = false; this.fx.shout('FIRE EXTINGUISHED!', '#7dd3fc', true); }
+    else if (this.clock < 2) this.fx.shout('BUZZER BEATER!', '#ffe14d', true);
+    if (this.streak.n === 3) { this.onFire[team] = true; this.fx.shout(`${this.teams[team].short} IS ON FIRE!`, '#ff5a1f', true); }
     const t = this.teams[scorer.team];
     this.fx.confetti(scorer.x, scorer.y, [t.primary, t.secondary, '#fff']);
     this.onShake(0.5);
@@ -472,6 +543,7 @@ export class Match {
       ctx.fillStyle = '#ff4040'; ctx.font = '900 0.45px system-ui';
       ctx.fillText(`KEY ${Math.ceil(this.rules.attackerKeyLimit - c.keyTime)}`, c.x, c.y + c.radius + 0.4);
     }
+    this.fx.drawFloor(ctx);
     for (const c of this.chairs) c.draw(ctx);
     // Penalty box labels
     for (const c of this.chairs) if (c.penalty > 0) {

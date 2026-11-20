@@ -1,4 +1,13 @@
-export interface PlayerDef { name: string; number: number; cls: number; female?: boolean; }
+export type Focus = 'balanced' | 'speed' | 'power' | 'hands';
+export interface PlayerDef { name: string; number: number; cls: number; female?: boolean; focus?: Focus; }
+
+/** Each focus trades one strength for another, so no build is strictly better. */
+export const FOCUS: Record<Focus, { label: string; desc: string; speed: number; accel: number; mass: number; push: number; turn: number; hands: number }> = {
+  balanced: { label: 'Balanced', desc: 'No strengths, no weaknesses', speed: 0, accel: 0, mass: 0, push: 0, turn: 0, hands: 0 },
+  speed:    { label: 'Speed', desc: 'Faster, lighter (easier to knock around)', speed: 0.5, accel: 0.4, mass: -0.12, push: 0, turn: 0, hands: 0 },
+  power:    { label: 'Power', desc: 'Heavier hits, bigger pushes, slower', speed: -0.4, accel: -0.2, mass: 0.15, push: 0.3, turn: 0, hands: 0 },
+  hands:    { label: 'Hands', desc: 'Catches more, turns sharper, slightly slower', speed: -0.2, accel: 0, mass: -0.05, push: 0, turn: 0.4, hands: 0.15 },
+};
 export interface TeamDef { name: string; short: string; primary: string; secondary: string; players: PlayerDef[]; }
 
 export const POINT_LIMIT = 8.0;

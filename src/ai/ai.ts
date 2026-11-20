@@ -73,7 +73,7 @@ function steer(c: Chair, tx: number, ty: number, arrive: number, ram = false): C
   const dx = tx - c.x, dy = ty - c.y, d = Math.hypot(dx, dy);
   const aim = Math.atan2(dy, dx);
   let da = aim - c.heading; da = Math.abs(Math.atan2(Math.sin(da), Math.cos(da)));
-  const ctl: Controls = { turn: 0, throttle: 0, aim, push: false, brake: false, pass: false, bounce: false };
+  const ctl: Controls = { turn: 0, throttle: 0, aim, push: false, brake: false, pass: false, bounce: false, hype: false };
   if (d < arrive) { ctl.aim = null; ctl.brake = c.speed > 1; return ctl; }
   ctl.throttle = Math.min(1, d / 2);
   const wantPush = ram ? d < 4 : d > 4;

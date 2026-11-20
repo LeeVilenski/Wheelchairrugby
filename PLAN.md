@@ -20,8 +20,8 @@ Top-down 2D browser game. Real IWRF rules, arcade feel, customisable teams.
 3. ✅ 4v4 + basic AI, mass-based collisions, hits, fumbles, player switching
 4. ✅ Referee: game/shot/12 s clocks, quarters + OT, key rules, spinning fouls, penalty box, Arcade/Sim presets
 5. ✅ Title/team-select/settings/help menus, pause, timeouts (4/team), 8-player rosters + subs with 8.0-point check, CPU auto-subs, full-time stats + MVP, attract-mode demo
-6. Team editor + classification budget, save/load/share
-7. Arcade juice: Hype meter, effects, audio
+6. ✅ Team editor: name/short/colours with live preview, up to 12 players (number, class, focus, ♀), 8.0 check, saved on device, share/import codes
+7. ✅ Arcade juice: Hype meter + HYPE boost, ON FIRE streaks, chain blocks, hit-stop/slow-mo, flashes, tyre trails, flames, announcer callouts, synthesised sound + crowd
 8. AI tactics, difficulty, tournament mode
 9. Polish, deploy
 
