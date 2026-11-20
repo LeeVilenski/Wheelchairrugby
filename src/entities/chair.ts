@@ -1,6 +1,6 @@
 import { COURT } from '../game/court';
 import type { Controls } from '../core/input';
-import { FOCUS, type PlayerDef, type TeamDef } from '../data/teams';
+import { GLOVES, HAIR_COLORS, SKIN, looksOf, statsOf, type PlayerDef, type TeamDef } from '../data/teams';
 
 // Top-down wheelchair with momentum: it can only roll along its heading,
 // so sideways velocity is scrubbed by tyre grip.
@@ -30,6 +30,7 @@ export class Chair {
   readonly turnRate: number;
   readonly pushImpulse: number;
   readonly catchRadius: number;
+  readonly staminaUse: number;
   readonly rollDrag = 0.6;
   readonly brakeDrag = 4;
   readonly grip = 9;
@@ -38,15 +39,17 @@ export class Chair {
     public x: number, public y: number, public heading: number,
     public team: number, public teamDef: TeamDef, public def: PlayerDef,
   ) {
-    const c = def.cls, f = FOCUS[def.focus ?? 'balanced'];
+    // Classification sets the baseline; stats (3 = average) adjust around it.
+    const c = def.cls, st = statsOf(def), d = (k: keyof typeof st) => st[k] - 3;
     this.cls = c;
     this.radius = 0.62 - c * 0.025;
-    this.mass = 1.35 - c * 0.1 + f.mass;
-    this.maxSpeed = 5.8 + c * 0.45 + f.speed;
-    this.cruiseAccel = 3.8 + c * 0.4 + f.accel;
-    this.turnRate = 3.4 + c * 0.35 + f.turn;
-    this.pushImpulse = 2.1 + c * 0.2 + f.push;
-    this.catchRadius = 0.7 + c * 0.07 + f.hands;
+    this.mass = 1.35 - c * 0.1 + d('hit') * 0.06;
+    this.maxSpeed = 5.8 + c * 0.45 + d('spd') * 0.25;
+    this.cruiseAccel = 3.8 + c * 0.4 + d('acc') * 0.22;
+    this.turnRate = 3.4 + c * 0.35 + d('trn') * 0.22;
+    this.pushImpulse = 2.1 + c * 0.2 + d('acc') * 0.08 + d('hit') * 0.06;
+    this.catchRadius = 0.7 + c * 0.07 + d('hnd') * 0.06;
+    this.staminaUse = Math.max(0.5, 1 - d('sta') * 0.12);
   }
 
   get speed() { return Math.hypot(this.vx, this.vy); }
@@ -77,7 +80,7 @@ export class Chair {
     if (throttle > 0 && this.stamina > 0.02) {
       this.vx += fx * this.cruiseAccel * this.speedMul * throttle * dt;
       this.vy += fy * this.cruiseAccel * this.speedMul * throttle * dt;
-      this.stamina -= 0.035 * throttle * dt;
+      this.stamina -= 0.035 * this.staminaUse * throttle * dt;
     } else if (throttle < 0) {
       this.vx += fx * this.cruiseAccel * 0.5 * throttle * dt;
       this.vy += fy * this.cruiseAccel * 0.5 * throttle * dt;
@@ -87,7 +90,7 @@ export class Chair {
     if (c.push && this.pushCooldown <= 0 && this.stamina > 0.1) {
       this.vx += fx * this.pushImpulse * (1 + this.boost * 0.35);
       this.vy += fy * this.pushImpulse * (1 + this.boost * 0.35);
-      this.stamina -= 0.07;
+      this.stamina -= 0.07 * this.staminaUse;
       this.pushCooldown = 0.35 - this.boost * 0.15;
     }
 
@@ -140,10 +143,29 @@ export class Chair {
     ctx.strokeStyle = this.teamDef.secondary;
     ctx.lineWidth = this.isDefensive ? 0.14 : 0.09;
     ctx.beginPath(); ctx.arc(r * 0.15, 0, r * 0.85, this.isDefensive ? -1.4 : -1.0, this.isDefensive ? 1.4 : 1.0); ctx.stroke();
-    ctx.fillStyle = this.teamDef.primary;
-    ctx.beginPath(); ctx.roundRect(-r * 0.6, -r * 0.6, r * 1.0, r * 1.2, 0.12); ctx.fill();
-    ctx.fillStyle = '#8d5a3b';
+    // Seat / shirt with the team's kit pattern
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(-r * 0.6, -r * 0.6, r * 1.0, r * 1.2, 0.12);
+    ctx.fillStyle = this.teamDef.primary; ctx.fill(); ctx.clip();
+    ctx.fillStyle = this.teamDef.secondary;
+    const pat = this.teamDef.pattern ?? 'solid';
+    if (pat === 'stripe') ctx.fillRect(-r * 0.6, -r * 0.12, r, r * 0.24);
+    else if (pat === 'hoops') for (const x of [-0.45, -0.15, 0.15]) ctx.fillRect(r * x, -r * 0.6, r * 0.12, r * 1.2);
+    else if (pat === 'halves') ctx.fillRect(-r * 0.6, 0, r, r * 0.6);
+    else if (pat === 'sash') { ctx.beginPath(); ctx.moveTo(-r * 0.6, -r * 0.6); ctx.lineTo(-r * 0.3, -r * 0.6); ctx.lineTo(r * 0.4, r * 0.6); ctx.lineTo(r * 0.1, r * 0.6); ctx.fill(); }
+    ctx.restore();
+    // Gloves on the push rims, head and hair
+    const lk = looksOf(this.def);
+    ctx.fillStyle = GLOVES[lk.gloves] ?? GLOVES[0];
+    ctx.beginPath(); ctx.arc(0, -r * 0.72, r * 0.14, 0, Math.PI * 2); ctx.arc(0, r * 0.72, r * 0.14, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = SKIN[lk.skin] ?? SKIN[2];
     ctx.beginPath(); ctx.arc(-r * 0.15, 0, r * 0.32, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = HAIR_COLORS[lk.hairColor] ?? HAIR_COLORS[0];
+    const hx = -r * 0.15, hr = r * 0.32;
+    if (lk.hair === 1) { ctx.beginPath(); ctx.arc(hx, 0, hr, Math.PI * 0.55, Math.PI * 1.45); ctx.fill(); }
+    else if (lk.hair === 2) { ctx.beginPath(); ctx.arc(hx, 0, hr * 1.12, Math.PI * 0.5, Math.PI * 1.5); ctx.fill(); ctx.fillRect(hx - hr * 1.5, -hr * 0.7, hr * 0.6, hr * 1.4); }
+    else if (lk.hair === 3) ctx.fillRect(hx - hr, -hr * 0.18, hr * 1.7, hr * 0.36);
+    else if (lk.hair === 4) { ctx.beginPath(); ctx.arc(hx - hr * 1.05, 0, hr * 0.42, 0, Math.PI * 2); ctx.arc(hx, 0, hr, Math.PI * 0.6, Math.PI * 1.4); ctx.fill(); }
     ctx.restore();
 
     ctx.fillStyle = '#fff';

@@ -1,7 +1,8 @@
 import './ui.css';
-import { FIVES, FOCUS, FORMATS, STANDARD, autoLineup, canField, lineupLimit, lineupPoints, validLineup, type Focus, type TeamDef } from '../data/teams';
+import { FIVES, FOCUS, FOCUS_STATS, FORMATS, GLOVES, HAIR_COLORS, HAIR_STYLES, LOGO_SHAPES, PATTERNS, SKIN, STAT_BUDGET, STAT_KEYS, STAT_LABELS, STANDARD, looksOf, statTotal, type Stats, autoLineup, canField, lineupLimit, lineupPoints, validLineup, type Focus, type TeamDef } from '../data/teams';
 import { CLASSES, MAX_ROSTER, allTeams, decodeTeam, deleteTeam, encodeTeam, isCustom, newId, saveTeam, teamProblems, type StoredTeam } from '../data/store';
 import { Chair } from '../entities/chair';
+import { teamLogo } from './logo';
 import { loadCup, newCup, nextOpponent, recordResult, saveCup, standings, type Cup } from '../game/cup';
 import type { Match } from '../game/match';
 import { DEFAULT_CUSTOM, type CustomRules } from '../game/rules';
@@ -123,7 +124,7 @@ export class Ui {
         <div class="row"><button class="chip" data-a="prev" data-v="${side}">◀</button>
           <div class="name">${esc(t.name)}</div>
           <button class="chip" data-a="next" data-v="${side}">▶</button></div>
-        <div><span class="swatch" style="background:${t.primary}"></span><span class="swatch" style="background:${t.secondary}"></span> ${t.short}</div>
+        <div>${teamLogo(t, 40)} <span class="swatch" style="background:${t.primary}"></span><span class="swatch" style="background:${t.secondary}"></span> ${t.short}</div>
         <div class="roster">${rows}</div></div>`;
     };
     const cycle = (side: string, d: number) => {
@@ -154,7 +155,7 @@ export class Ui {
       <p class="tag">Four teams play each other once. The top two meet in the final.</p>
       <div class="team-card" style="--c:${t.primary};max-width:360px;margin:0 auto;width:100%">
         <div class="row"><button class="chip" data-a="prev">◀</button><div class="name">${esc(t.name)}</div><button class="chip" data-a="next">▶</button></div>
-        <div><span class="swatch" style="background:${t.primary}"></span><span class="swatch" style="background:${t.secondary}"></span> ${t.short}</div>
+        <div>${teamLogo(t, 48)}</div>
       </div>
       <p class="tag">${this.settings.format === 'fives' ? 'Fives · ' : ''}${this.settings.quarterMinutes}-minute ${this.settings.format === 'fives' ? 'setting' : 'quarters'} · ${this.settings.difficulty} CPU · change in Settings</p>
       <div class="row"><button class="btn alt" data-a="back">Back</button><button class="btn" data-a="go">Start cup</button></div>`, {
@@ -167,7 +168,7 @@ export class Ui {
 
   cupScreen(c: Cup) {
     const T = c.teams, opp = nextOpponent(c);
-    const name = (i: number) => `<span class="swatch" style="background:${T[i].primary}"></span> ${esc(T[i].name)}${i === 0 ? ' (you)' : ''}`;
+    const name = (i: number) => `${teamLogo(T[i], 22)} ${esc(T[i].name)}${i === 0 ? ' (you)' : ''}`;
     const table = standings(c).map((r, pos) => `<tr${r.i === 0 ? ' style="font-weight:800"' : ''}><td>${pos + 1}. ${name(r.i)}</td>
       <td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td>${r.pts}</td></tr>`).join('');
     const res = c.results.map((r, k) => `<div>${k === 6 ? '<b>Final:</b> ' : ''}${esc(T[r.a].short)} ${r.sa} – ${r.sb} ${esc(T[r.b].short)}</div>`).join('');
@@ -196,7 +197,7 @@ export class Ui {
   teamManager(msg = '') {
     const T = allTeams();
     const rows = T.map((t, i) => `<div class="setting">
-        <span><span class="swatch" style="background:${t.primary}"></span><span class="swatch" style="background:${t.secondary}"></span>
+        <span>${teamLogo(t, 28)}
           ${esc(t.name)} <small style="opacity:.6">${t.short}${isCustom(t) ? '' : ' · preset'}</small></span>
         <span class="opts">
           ${isCustom(t) ? `<button class="chip" data-a="edit" data-v="${i}">Edit</button>` : ''}
@@ -260,15 +261,16 @@ export class Ui {
     const best5 = d.players.length >= 5 ? autoLineup(d.players, undefined, FIVES) : [];
     const fivesOk = validLineup(best5, FIVES);
     const clsOpts = (v: number) => CLASSES.map(c => `<option value="${c}" ${c === v ? 'selected' : ''}>${pts(c)}</option>`).join('');
-    const focusOpts = (v: Focus) => (Object.keys(FOCUS) as Focus[]).map(f => `<option value="${f}" ${f === v ? 'selected' : ''}>${FOCUS[f].label}</option>`).join('');
+    const focusOpts = (v: Focus, custom: boolean) => (Object.keys(FOCUS) as Focus[]).map(f => `<option value="${f}" ${!custom && f === v ? 'selected' : ''}>${FOCUS[f].label}</option>`).join('')
+      + (custom ? '<option value="custom" selected>Custom</option>' : '');
     const inp = 'style="background:#0d1117;color:#fff;border:1px solid #3a4356;border-radius:8px;padding:6px 8px;font:600 14px system-ui;min-height:36px"';
     const rows = d.players.map((p, i) => `<div class="prow">
         <input data-f="p.${i}.number" type="number" min="0" max="99" value="${p.number}" style="width:64px;background:#0d1117;color:#fff;border:1px solid #3a4356;border-radius:8px;padding:6px;min-height:36px;font:600 14px system-ui" aria-label="Number">
         <input ${inp} data-f="p.${i}.name" maxlength="16" value="${esc(p.name)}" aria-label="Name" size="10">
         <select ${inp} data-f="p.${i}.cls" aria-label="Classification">${clsOpts(p.cls)}</select>
-        <select ${inp} data-f="p.${i}.focus" aria-label="Focus">${focusOpts(p.focus ?? 'balanced')}</select>
+        <select ${inp} data-f="p.${i}.focus" aria-label="Focus">${focusOpts(p.focus ?? 'balanced', !!p.stats)}</select>
         <label style="font-size:13px"><input type="checkbox" data-f="p.${i}.female" ${p.female ? 'checked' : ''}> ♀</label>
-        <small style="color:#4ade80">${best.includes(p) ? 'starter' : ''}</small>
+        <button class="chip" data-a="player" data-v="${i}" aria-label="Customise stats and looks">✎ ${best.includes(p) ? '<small style="color:#4ade80">★</small>' : ''}</button>
         <button class="chip" data-a="rm" data-v="${i}" ${d.players.length <= 4 ? 'disabled' : ''} aria-label="Remove">✕</button>
       </div>`).join('');
     this.show(`
@@ -280,9 +282,13 @@ export class Ui {
           <label>Short <input ${inp} data-f="short" maxlength="4" size="4" value="${esc(d.short)}"></label>
           <label>Colours <input type="color" data-f="primary" value="${d.primary}"> <input type="color" data-f="secondary" value="${d.secondary}"></label>
         </div>
+        <span id="logo">${teamLogo(d, 72)}</span>
       </div>
+      <div class="setting">Kit pattern<div class="opts">${PATTERNS.map(p => `<button class="chip ${(d.pattern ?? 'solid') === p ? 'on' : ''}" data-a="pattern" data-v="${p}">${p}</button>`).join('')}</div></div>
+      <div class="setting">Badge<div class="opts">${LOGO_SHAPES.map(l => `<button class="chip ${(d.logo ?? 'shield') === l ? 'on' : ''}" data-a="logo" data-v="${l}">${teamLogo({ ...d, logo: l }, 26)}</button>`).join('')}</div></div>
       <p class="tag">Classification 0.5 (heavy blocker) to 3.5 (fast ball carrier). Starters: the best four within 8.0 points (+0.5 per female player).
-        Focus: ${(Object.keys(FOCUS) as Focus[]).filter(f => f !== 'balanced').map(f => `<b>${FOCUS[f].label}</b>: ${FOCUS[f].desc.toLowerCase()}`).join(' · ')}.</p>
+        Focus: ${(Object.keys(FOCUS) as Focus[]).filter(f => f !== 'balanced').map(f => `<b>${FOCUS[f].label}</b>: ${FOCUS[f].desc.toLowerCase()}`).join(' · ')}.
+        ✎ sets individual stats and looks. ★ = starter.</p>
       ${rows}
       <div class="row"><button class="chip" data-a="add" ${d.players.length >= MAX_ROSTER ? 'disabled' : ''}>+ Add player (${d.players.length}/${MAX_ROSTER})</button></div>
       ${probs.length ? `<div class="points bad">${probs.map(esc).join('<br>')}</div>` : `<div class="points">Starting four: ${pts(lineupPoints(best))} / ${pts(lineupLimit(best, STANDARD))} points ·
@@ -295,6 +301,9 @@ export class Ui {
         this.rerender(() => this.editor(d));
       },
       rm: v => { d.players.splice(+v, 1); this.rerender(() => this.editor(d)); },
+      player: v => this.playerEditor(d, +v),
+      pattern: v => { d.pattern = v as typeof d.pattern; this.rerender(() => this.editor(d)); },
+      logo: v => { d.logo = v as typeof d.logo; this.rerender(() => this.editor(d)); },
       cancel: () => this.teamManager(),
       save: () => {
         if (teamProblems(d).length) return this.rerender(() => this.editor(d));
@@ -308,14 +317,52 @@ export class Ui {
         if (k === 'name') p.name = value.slice(0, 16);
         if (k === 'number') p.number = Math.max(0, Math.min(99, Math.round(+value || 0)));
         if (k === 'cls') p.cls = +value;
-        if (k === 'focus') p.focus = value as Focus;
+        if (k === 'focus' && value !== 'custom') { p.focus = value as Focus; p.stats = undefined; }
         if (k === 'female') p.female = checked;
       } else if (a === 'short') d.short = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
       else if (a === 'name') d.name = value.slice(0, 24);
-      else if (a === 'primary' || a === 'secondary') { d[a] = value; drawPreview(d); }
+      else if (a === 'primary' || a === 'secondary') {
+        d[a] = value; drawPreview(d);
+        const lg = document.getElementById('logo'); if (lg) lg.innerHTML = teamLogo(d, 72);
+      }
       if (structural) this.rerender(() => this.editor(d));
     };
     drawPreview(d);
+  }
+
+  playerEditor(d: StoredTeam, i: number) {
+    const p = d.players[i];
+    const st: Stats = { ...(p.stats ?? FOCUS_STATS[p.focus ?? 'balanced']) };
+    const lk = { ...looksOf(p) };
+    const total = statTotal(st);
+    const statRows = STAT_KEYS.map(k => `<div class="setting"><span>${STAT_LABELS[k]}</span><span class="opts" style="align-items:center">
+        <button class="chip" data-a="dec" data-v="${k}" ${st[k] <= 1 ? 'disabled' : ''}>−</button>
+        <span style="font:900 16px ui-monospace,monospace;letter-spacing:2px">${'■'.repeat(st[k])}<span style="opacity:.25">${'■'.repeat(5 - st[k])}</span></span>
+        <button class="chip" data-a="inc" data-v="${k}" ${st[k] >= 5 || total >= STAT_BUDGET ? 'disabled' : ''}>+</button></span></div>`).join('');
+    const sw = (key: keyof typeof lk, colors: string[]) => colors.map((c, j) =>
+      `<button class="chip ${lk[key] === j ? 'on' : ''}" data-a="look" data-v="${key}.${j}" style="background:${c};width:38px" aria-label="${key} ${j + 1}"></button>`).join('');
+    this.show(`
+      <h2>#${p.number} ${esc(p.name)}</h2>
+      <div class="row" style="align-items:center">
+        <canvas id="pprev" width="120" height="120" style="width:120px;height:120px;border-radius:12px;background:#d9a066"></canvas>
+        <div class="tag">Class ${pts(p.cls)}${p.female ? ' · ♀' : ''}<br>Stat points: <b>${total} / ${STAT_BUDGET}</b><br>
+          <span style="font-size:12px">Presets:</span> ${(Object.keys(FOCUS) as Focus[]).map(f => `<button class="chip" data-a="preset" data-v="${f}">${FOCUS[f].label}</button>`).join(' ')}</div>
+      </div>
+      ${statRows}
+      <div class="setting">Skin<div class="opts">${sw('skin', SKIN)}</div></div>
+      <div class="setting">Hair<div class="opts">${HAIR_STYLES.map((h, j) => `<button class="chip ${lk.hair === j ? 'on' : ''}" data-a="look" data-v="hair.${j}">${h}</button>`).join('')}</div></div>
+      <div class="setting">Hair colour<div class="opts">${sw('hairColor', HAIR_COLORS)}</div></div>
+      <div class="setting">Gloves<div class="opts">${sw('gloves', GLOVES)}</div></div>
+      <div class="btns"><button class="btn" data-a="done">Done</button></div>`, {
+      inc: k => { st[k as keyof Stats]++; p.stats = st; this.rerender(() => this.playerEditor(d, i)); },
+      dec: k => { st[k as keyof Stats]--; p.stats = st; this.rerender(() => this.playerEditor(d, i)); },
+      preset: f => { p.focus = f as Focus; p.stats = undefined; this.rerender(() => this.playerEditor(d, i)); },
+      look: v => { const [k, j] = v.split('.'); (lk as Record<string, number>)[k] = +j; p.looks = lk; this.rerender(() => this.playerEditor(d, i)); },
+      done: () => this.editor(d),
+    });
+    const cv = document.getElementById('pprev') as HTMLCanvasElement;
+    const ctx = cv.getContext('2d')!; ctx.scale(70, 70);
+    new Chair(0.85, 0.95, -Math.PI / 2, 0, d, p).draw(ctx);
   }
 
   /** Re-render the current screen without losing the scroll position. */
@@ -459,7 +506,7 @@ export class Ui {
         <td>${r.s.goals}</td><td>${r.s.hits}</td><td>${r.s.steals}</td><td>${r.s.fouls}</td></tr>`).join('');
     this.show(`
       <h2>FULL TIME</h2>
-      <div class="score-big"><span style="color:${T[0].primary}">${T[0].short}</span> ${a} – ${b} <span style="color:${T[1].primary}">${T[1].short}</span></div>
+      <div class="score-big">${teamLogo(T[0], 56)} ${a} – ${b} ${teamLogo(T[1], 56)}</div>
       <div class="tag">${esc(T[winner].name)} win${m.inOvertime ? ' in overtime' : ''}!</div>
       ${mvp ? `<div class="mvp">MVP: #${mvp.p.number} ${esc(mvp.p.name)} (${mvp.t.short}) — ${plural(mvp.s.goals, 'goal')}, ${plural(mvp.s.hits, 'big hit')}, ${plural(mvp.s.steals, 'steal')}</div>` : ''}
       <table><tr><th>Player</th><th>Goals</th><th>Big hits</th><th>Steals</th><th>Fouls</th></tr>${rows}</table>
