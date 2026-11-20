@@ -145,7 +145,8 @@ export class Match {
       c.x = COURT.length / 2 + dir * [-1, 1, 1, 4, 2.5][i % 5]; c.y = [W / 2, W / 2 - 3.5, W / 2 + 3.5, W / 2, W / 2 + 5.5][i % 5];
       c.heading = dir > 0 ? Math.PI : 0; c.vx = c.vy = 0;
     });
-    this.give(this.team(team)[0]);
+    const taker = this.team(team)[0] ?? this.team(1 - team)[0];
+    if (taker) this.give(taker);
   }
 
   give(c: Chair) {
@@ -264,7 +265,8 @@ export class Match {
     this.showBanner('TURNOVER', reason, this.teams[toTeam].primary);
     this.deadBall(1.3, () => {
       const ix = Math.max(0.4, Math.min(COURT.length - 0.4, x)), iy = Math.max(0.4, Math.min(COURT.width - 0.4, y));
-      const taker = this.team(toTeam).sort((a, b) => dist(a, ix, iy) - dist(b, ix, iy))[0];
+      const taker = this.team(toTeam).sort((a, b) => dist(a, ix, iy) - dist(b, ix, iy))[0] ?? this.team(1 - toTeam)[0];
+      if (!taker) return;
       taker.x = ix; taker.y = iy; taker.vx = taker.vy = 0;
       taker.heading = Math.atan2(COURT.width / 2 - iy, this.goalX(toTeam) - ix);
       for (const c of this.team(1 - toTeam)) if (dist(c, ix, iy) < 2) {
@@ -322,6 +324,7 @@ export class Match {
     this.deadBall(1.6, () => {
       const ix = Math.max(0.4, Math.min(COURT.length - 0.4, x)), iy = Math.max(0.4, Math.min(COURT.width - 0.4, y));
       const taker = carrier && carrier.penalty <= 0 ? carrier : this.team(att).sort((a, b) => dist(a, ix, iy) - dist(b, ix, iy))[0];
+      if (!taker) return;
       taker.x = ix; taker.y = iy; taker.vx = taker.vy = 0;
       const keepClocks = this.possTeam === att;
       this.give(taker);
@@ -420,7 +423,7 @@ export class Match {
     for (const c of this.onCourt) {
       const isHuman = c.human && !this.demo && !acted.has(c.player);
       if (isHuman) acted.add(c.player);
-      const ctl = isHuman ? inputs[c.player - 1] ?? IDLE : c.human && !this.demo ? IDLE : aiControls(c, this);
+      const ctl = isHuman ? inputs[c.player - 1] ?? IDLE : (c.human && !this.demo) || c.frozen ? BRAKED : aiControls(c, this);
       if (isHuman && ctl.hype) this.useHype(c.team);
       c.boost = this.hypeTime[c.team] > 0 ? 1 : this.onFire[c.team] ? 0.3 : 0;
       c.speedMul = this.speedMul[c.team];

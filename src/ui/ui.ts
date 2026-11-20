@@ -2,6 +2,7 @@ import './ui.css';
 import { FIVES, FOCUS, FOCUS_STATS, FORMATS, GLOVES, HAIR_COLORS, HAIR_STYLES, LOGO_SHAPES, PATTERNS, SKIN, STAT_BUDGET, STAT_KEYS, STAT_LABELS, STANDARD, looksOf, statTotal, type Stats, autoLineup, canField, lineupLimit, lineupPoints, validLineup, type Focus, type TeamDef } from '../data/teams';
 import { CLASSES, MAX_ROSTER, allTeams, decodeTeam, deleteTeam, encodeTeam, isCustom, newId, saveTeam, teamProblems, type StoredTeam } from '../data/store';
 import { Chair } from '../entities/chair';
+import { DRILLS, completedDrills } from '../game/training';
 import { teamLogo } from './logo';
 import { groupsOf, loadCup, newCup, nextOpponent, recordResult, saveCup, stageName, standings, type Cup } from '../game/cup';
 import type { Match } from '../game/match';
@@ -38,6 +39,7 @@ export interface UiHooks {
   quit(): void;
   rematch(): void;
   settingsChanged(s: Settings): void;
+  training(drill: number): void;
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -90,6 +92,7 @@ export class Ui {
         <button class="btn" data-a="quick">Quick match</button>
         <button class="btn alt" data-a="teams">Exhibition</button>
         <button class="btn alt" data-a="cup">🏆 Cup</button>
+        <button class="btn alt" data-a="train">🎓 Training</button>
         <button class="btn alt" data-a="editor">Team editor</button>
         <button class="btn alt" data-a="settings">Settings</button>
         <button class="btn ${this.settings.seenHelp ? 'alt' : ''}" data-a="help">${this.settings.seenHelp ? 'How to play' : '👋 New? How to play'}</button>
@@ -103,6 +106,7 @@ export class Ui {
       teams: () => this.teamSelect(),
       cup: () => { const c = loadCup(); c ? this.cupScreen(c) : this.cupPick(); },
       editor: () => this.teamManager(),
+      train: () => this.trainingMenu(),
       settings: () => { this.back = () => this.title(); this.settingsScreen(); },
       help: () => {
         this.settings.seenHelp = true; saveSettings(this.settings);
@@ -147,6 +151,18 @@ export class Ui {
       back: () => this.title(),
       go: () => this.hooks.start(T[this.home], T[this.away], false, this.mode),
       mode: v => { this.mode = v as typeof this.mode; this.teamSelect(); },
+    });
+  }
+
+  trainingMenu(msg = '') {
+    const done = new Set(completedDrills());
+    this.show(`
+      <h2>🎓 Training</h2>
+      ${msg ? `<div class="mvp">${msg}</div>` : '<p class="tag">Short drills that teach the controls and the rules. Each one leads into the next.</p>'}
+      <div class="lineup">${DRILLS.map((d, i) => `<button class="pcard" data-a="go" data-v="${i}">${done.has(d.id) ? '✅' : '⬜'} <b>${esc(d.title)}</b></button>`).join('')}</div>
+      <div class="btns"><button class="btn alt" data-a="back">Back</button></div>`, {
+      go: v => this.hooks.training(+v),
+      back: () => this.hooks.quit(),
     });
   }
 

@@ -11,7 +11,8 @@ export class Chair {
   holdTime = 0;          // seconds since last bounce/pickup while holding the ball
   human = false;         // controlled by a person (see `player`)
   player = 0;            // 0 = CPU, 1 = P1, 2 = P2
-  tag = '';              // 'P1' / 'P2' label in two-player games
+  tag = '';
+  frozen = false;        // training: CPU chair that holds its position              // 'P1' / 'P2' label in two-player games
   keyTime = 0;           // seconds spent in the opponents' key (attacking)
   keyEnteredAt = 0;      // when this chair entered its own key (defending)
   inOwnKey = false;

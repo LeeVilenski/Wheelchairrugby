@@ -7,6 +7,7 @@ import { buildRules, type RuleSet } from './game/rules';
 import { canField, FORMATS } from './data/teams';
 import { Ui, type Settings } from './ui/ui';
 import { loadCup } from './game/cup';
+import { DRILLS, markDone, trainingMatch } from './game/training';
 import { Audio, Announcer } from './core/audio';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -38,6 +39,11 @@ function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false, m: M
   match.skill = demo || vs ? [0.6, 0.6] : [0.6, d.skill];
   match.speedMul = demo || vs ? [1, 1] : [1, d.speed];
   match.autoSubs = [demo || st.autoSubs, !vs || st.autoSubs];
+  training = null;
+  wireMatch();
+}
+
+function wireMatch() {
   match.onShake = a => { if (ui.settings.effects) camera.addShake(a); };
   match.reducedEffects = match.fx.reduced = !ui.settings.effects;
   match.fx.onShout = text => {
@@ -58,10 +64,42 @@ function startDemo() {
   paused = false;
 }
 
+// ---- Training ----
+let training: { idx: number; status: string; result: '' | 'done' | 'fail'; timer: number } | null = null;
+function startDrill(idx: number) {
+  const T = DEFAULT_TEAMS;
+  newMatch(T[0], T[1], false);
+  match = trainingMatch(T[0], T[1]);
+  wireMatch();
+  match.skill = [0.6, 0.4];
+  DRILLS[idx].setup(match);
+  training = { idx, status: '', result: '', timer: 0 };
+  ui.close(); paused = false;
+}
+function trainingStep(dt: number) {
+  if (!training) return;
+  const tr = training, d = DRILLS[tr.idx];
+  if (tr.result) {
+    if ((tr.timer -= dt) > 0) return;
+    if (tr.result === 'fail') return startDrill(tr.idx);
+    if (tr.idx + 1 < DRILLS.length) return startDrill(tr.idx + 1);
+    training = null; paused = true; ui.trainingMenu('🎓 All drills complete. You are ready for a real match!'); return;
+  }
+  const r = d.check(match, dt);
+  if (r === 'done') {
+    markDone(d.id); tr.result = 'done'; tr.timer = 2.2; tr.status = '';
+    match.showBanner('DRILL COMPLETE', d.title, '#4ade80', 2.2); audio.play('goal');
+  } else if (r.startsWith('fail:')) {
+    tr.result = 'fail'; tr.timer = 3.2; tr.status = '';
+    match.showBanner('TRY AGAIN', r.slice(5), '#f87171', 3.2); audio.play('whistle');
+  } else tr.status = r;
+}
+
 const ui = new Ui({
   start: (home, away, cup, m) => { newMatch(home, away, false, cup, m); ui.close(); paused = false; requestWakeLock(); },
   resume: () => { ui.close(); paused = false; },
-  quit: () => { startDemo(); ui.title(); releaseWakeLock(); },
+  quit: () => { training = null; startDemo(); ui.title(); releaseWakeLock(); },
+  training: (i: number) => startDrill(i),
   rematch: () => { newMatch(match.teams[0], match.teams[1], false, false, mode); ui.close(); paused = false; },
   settingsChanged: st => {
     camera.mode = st.camera; audio.setMuted(!st.sound);
@@ -92,7 +130,8 @@ let W = 0, H = 0;
 const camBtn = { y: 12, w: 120, h: 36 };
 const pauseBtn = { y: 12, w: 44, h: 36 };
 input.tapTargets.push({ y: camBtn.y, w: camBtn.w, h: camBtn.h, get x() { return W - camBtn.w - 12; }, onTap: () => camera.toggle() });
-input.tapTargets.push({ y: pauseBtn.y, w: pauseBtn.w, h: pauseBtn.h, get x() { return W - camBtn.w - 12 - pauseBtn.w - 8; }, onTap: openPause });
+input.tapTargets.push({ y: pauseBtn.y, w: pauseBtn.w, h: pauseBtn.h, get x() { return training ? -999 : W - camBtn.w - 12 - pauseBtn.w - 8; }, onTap: openPause });
+input.tapTargets.push({ get y() { return training ? H - 56 : -999; }, w: 44, h: 36, get x() { return W - 56; }, onTap: openPause });
 
 function resize() {
   const dpr = Math.min(2, devicePixelRatio || 1);
@@ -117,7 +156,7 @@ function frame(now: number) {
     const ctl = two ? [input.read(0, true), input.read(1, true)] : input.read() ?? IDLE;
     if (input.wasPressed('KeyM')) { ui.settings.sound = !ui.settings.sound; audio.setMuted(!ui.settings.sound); if (!ui.settings.sound) speechSynthesis?.cancel(); }
     if (input.wasPressed('Escape') || input.wasPressed('KeyP') || input.wasPressed('pad:start')) openPause();
-    if (!paused) match.update(STEP, ctl);
+    if (!paused) { match.update(STEP, ctl); trainingStep(STEP); }
     input.endFrame();
     acc -= STEP;
   }
@@ -141,12 +180,40 @@ function render() {
   camera.apply(ctx, W, H);
   drawCourtLayer();
   match.draw(ctx);
+  if (training) DRILLS[training.idx].draw?.(ctx, match);
   ctx.restore();
-  if (!demo) { drawHud(); input.drawTouch(ctx); }
+  if (training) { drawTrainingHud(); input.drawTouch(ctx); }
+  else if (!demo) { drawHud(); input.drawTouch(ctx); }
   match.fx.drawScreen(ctx, W, H);
 }
 
 function drawCourtLayer() { drawCourt(ctx); }
+
+function drawTrainingHud() {
+  const tr = training!, d = DRILLS[tr.idx];
+  const text = input.touchMode ? d.text.touch : d.text.keys;
+  const w = Math.min(W - 24, 640);
+  ctx.font = '600 14px system-ui';
+  // wrap instructions
+  const words = text.split(' '), lines: string[] = []; let line = '';
+  for (const wd of words) { const t = line ? line + ' ' + wd : wd; if (ctx.measureText(t).width > w - 28 && line) { lines.push(line); line = wd; } else line = t; }
+  if (line) lines.push(line);
+  const h = 56 + lines.length * 18;
+  const x = (W - w) / 2;
+  ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.beginPath(); ctx.roundRect(x, 10, w, h, 12); ctx.fill();
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffe14d'; ctx.font = '900 16px system-ui'; ctx.fillText(`🎓 ${d.title}`, x + 14, 28);
+  ctx.fillStyle = '#fff'; ctx.font = '600 14px system-ui';
+  lines.forEach((l, i) => ctx.fillText(l, x + 14, 50 + i * 18));
+  ctx.fillStyle = '#4ade80'; ctx.font = '800 14px system-ui';
+  ctx.fillText(tr.status, x + 14, 50 + lines.length * 18 + 4);
+  ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '700 12px system-ui';
+  ctx.fillText(`${tr.idx + 1} / ${DRILLS.length} · ${input.touchMode ? "pause button" : "Esc"} for menu`, x + w - 14, 28);
+  // pause button
+  const px = W - 56;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.beginPath(); ctx.roundRect(px, H - 56, 44, 36, 8); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.fillRect(px + 15, H - 46, 5, 16); ctx.fillRect(px + 24, H - 46, 5, 16);
+}
 
 function drawHud() {
   const [a, b] = match.teams;
