@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="0" fill="#0d1117"/>
+  <circle cx="256" cy="256" r="200" fill="#d9a066"/>
+  <!-- wheelchair from above -->
+  <g transform="translate(256 270) rotate(-30)">
+    <rect x="-95" y="-120" width="150" height="34" fill="#222"/>
+    <rect x="-95" y="86" width="150" height="34" fill="#222"/>
+    <path d="M 0 -100 A 110 110 0 0 1 0 100" fill="none" stroke="#ffd23f" stroke-width="16" transform="translate(30 0)"/>
+    <rect x="-80" y="-75" width="125" height="150" rx="16" fill="#2f6fe0"/>
+    <circle cx="-20" cy="0" r="38" fill="#8d5a3b"/>
+  </g>
+  <circle cx="330" cy="150" r="46" fill="#fff" stroke="#333" stroke-width="6"/>
+  <path d="M 284 150 L 376 150" stroke="#333" stroke-width="6"/>
+</svg>

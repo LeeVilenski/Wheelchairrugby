@@ -136,3 +136,22 @@ function drawHud() {
 }
 
 requestAnimationFrame(frame);
+
+// --- Installable web app (PWA) ---
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+const installBtn = document.getElementById('install') as HTMLButtonElement;
+let deferredPrompt: (Event & { prompt: () => Promise<void> }) | null = null;
+addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e as typeof deferredPrompt;
+  installBtn.style.display = 'block';
+});
+installBtn.addEventListener('click', async () => {
+  installBtn.style.display = 'none';
+  await deferredPrompt?.prompt();
+  deferredPrompt = null;
+});
+// Lock to landscape where supported (installed app / fullscreen).
+(screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape').catch(() => {});

@@ -4,13 +4,28 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Murderball!</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#0d1117" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Murderball" />
   <style>
     html, body { margin: 0; height: 100%; background: #0d1117; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
     canvas { display: block; width: 100vw; height: 100vh; }
+    #install { position: fixed; left: 12px; top: 40px; display: none; padding: 6px 12px; border: 0; border-radius: 8px;
+      background: #ffe14d; color: #111; font: 800 13px system-ui; }
+    #rotate { position: fixed; inset: 0; display: none; place-items: center; background: #0d1117; color: #fff;
+      font: 700 18px system-ui; text-align: center; }
+    @media (orientation: portrait) and (pointer: coarse) { #rotate { display: grid; } }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
+  <button id="install">📲 Install</button>
+  <div id="rotate">↻<br />Turn your phone sideways</div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
