@@ -622,6 +622,7 @@ export class Match {
     this.fx.confetti(scorer.x, scorer.y, [t.primary, t.secondary, '#fff']);
     this.onShake(0.5);
     this.showBanner('GOAL!', `#${scorer.def.number} ${scorer.def.name} — ${t.name}`, t.primary, 2.2);
+    this.fx.onShout(`${scorer.def.name} scores!`);
     this.ball.holder = null; this.ball.vx = this.ball.vy = 0;
     this.deadBall(2.2, () => {
       this.releasePenalties(1 - scorer.team, true); // a goal frees the conceding team's penalised players

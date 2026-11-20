@@ -7,7 +7,7 @@ import { buildRules, type RuleSet } from './game/rules';
 import { canField, FORMATS } from './data/teams';
 import { Ui, type Settings } from './ui/ui';
 import { loadCup } from './game/cup';
-import { Audio } from './core/audio';
+import { Audio, Announcer } from './core/audio';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -15,6 +15,7 @@ const input = new Input(canvas);
 const camera = new Camera();
 let match: Match;
 const audio = new Audio();
+const announcer = new Announcer();
 const unlock = () => audio.unlock();
 addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
 let paused = false;
@@ -35,6 +36,11 @@ function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false) {
   match.autoSubs = [demo || ui.settings.autoSubs, true];
   match.onShake = a => { if (ui.settings.effects) camera.addShake(a); };
   match.reducedEffects = match.fx.reduced = !ui.settings.effects;
+  match.fx.onShout = text => {
+    if (match.demo || !ui.settings.voice || !ui.settings.sound) return;
+    for (const t of match.teams) text = text.replace(new RegExp(`\\b${t.short}\\b`), t.name); // "HAM HYPE TIME" -> "Harbour Hammers hype time"
+    announcer.say(text);
+  };
   match.onVibrate = ms => { if (ui.settings.vibration && input.touchMode && !match.demo) navigator.vibrate?.(ms); };
   match.sfx = (n, v) => { if (!match.demo) audio.play(n, v); };
   match.onFullTime = () => {
@@ -103,7 +109,7 @@ function frame(now: number) {
   while (acc >= STEP) {
     if (input.wasPressed('KeyC')) camera.toggle();
     const ctl = input.read() ?? IDLE;
-    if (input.wasPressed('KeyM')) { ui.settings.sound = !ui.settings.sound; audio.setMuted(!ui.settings.sound); }
+    if (input.wasPressed('KeyM')) { ui.settings.sound = !ui.settings.sound; audio.setMuted(!ui.settings.sound); if (!ui.settings.sound) speechSynthesis?.cancel(); }
     if (input.wasPressed('Escape') || input.wasPressed('KeyP') || input.wasPressed('pad:start')) openPause();
     if (!paused) match.update(STEP, ctl);
     input.endFrame();

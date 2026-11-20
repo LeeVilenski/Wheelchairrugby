@@ -3,7 +3,7 @@ import { FIVES, FOCUS, FOCUS_STATS, FORMATS, GLOVES, HAIR_COLORS, HAIR_STYLES, L
 import { CLASSES, MAX_ROSTER, allTeams, decodeTeam, deleteTeam, encodeTeam, isCustom, newId, saveTeam, teamProblems, type StoredTeam } from '../data/store';
 import { Chair } from '../entities/chair';
 import { teamLogo } from './logo';
-import { loadCup, newCup, nextOpponent, recordResult, saveCup, standings, type Cup } from '../game/cup';
+import { groupsOf, loadCup, newCup, nextOpponent, recordResult, saveCup, stageName, standings, type Cup } from '../game/cup';
 import type { Match } from '../game/match';
 import { DEFAULT_CUSTOM, type CustomRules } from '../game/rules';
 
@@ -19,8 +19,9 @@ export interface Settings {
   vibration: boolean;
   seenHelp: boolean;
   format: 'standard' | 'fives';
+  voice: boolean;
 }
-const DEFAULTS: Settings = { custom: { ...DEFAULT_CUSTOM }, rules: 'Arcade', quarterMinutes: 3, camera: 'full', autoSubs: true, sound: true, difficulty: 'normal', effects: true, vibration: true, seenHelp: false, format: 'standard' };
+const DEFAULTS: Settings = { custom: { ...DEFAULT_CUSTOM }, rules: 'Arcade', quarterMinutes: 3, camera: 'full', autoSubs: true, sound: true, difficulty: 'normal', effects: true, vibration: true, seenHelp: false, format: 'standard', voice: true };
 
 export function loadSettings(): Settings {
   try {
@@ -146,13 +147,15 @@ export class Ui {
 
   // ---------------- Cup ----------------
   private cupTeam = 0;
+  private cupSize: 4 | 8 = 4;
   cupPick() {
     const T = this.playable();
     if (this.cupTeam >= T.length) this.cupTeam = 0;
     const t = T[this.cupTeam];
     this.show(`
       <h2>🏆 Cup: choose your team</h2>
-      <p class="tag">Four teams play each other once. The top two meet in the final.</p>
+      <div class="row">${([4, 8] as const).map(n => `<button class="chip ${this.cupSize === n ? 'on' : ''}" data-a="size" data-v="${n}" ${n === 8 && T.length < 8 ? 'disabled' : ''}>${n} teams</button>`).join('')}</div>
+      <p class="tag">${this.cupSize === 8 ? 'Two groups of four. Group winners and runners-up go to the semi-finals, then the final.' : 'Four teams play each other once. The top two meet in the final.'}</p>
       <div class="team-card" style="--c:${t.primary};max-width:360px;margin:0 auto;width:100%">
         <div class="row"><button class="chip" data-a="prev">◀</button><div class="name">${esc(t.name)}</div><button class="chip" data-a="next">▶</button></div>
         <div>${teamLogo(t, 48)}</div>
@@ -162,29 +165,33 @@ export class Ui {
       prev: () => { this.cupTeam = (this.cupTeam - 1 + T.length) % T.length; this.cupPick(); },
       next: () => { this.cupTeam = (this.cupTeam + 1) % T.length; this.cupPick(); },
       back: () => this.title(),
-      go: () => { const c = newCup(T[this.cupTeam], T, this.settings.quarterMinutes, this.settings.format); saveCup(c); this.cupScreen(c); },
+      go: () => { const c = newCup(T[this.cupTeam], T, this.settings.quarterMinutes, this.settings.format, this.cupSize); saveCup(c); this.cupScreen(c); },
+      size: v => { this.cupSize = +v as 4 | 8; this.cupPick(); },
     });
   }
 
   cupScreen(c: Cup) {
     const T = c.teams, opp = nextOpponent(c);
     const name = (i: number) => `${teamLogo(T[i], 22)} ${esc(T[i].name)}${i === 0 ? ' (you)' : ''}`;
-    const table = standings(c).map((r, pos) => `<tr${r.i === 0 ? ' style="font-weight:800"' : ''}><td>${pos + 1}. ${name(r.i)}</td>
-      <td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td>${r.pts}</td></tr>`).join('');
-    const res = c.results.map((r, k) => `<div>${k === 6 ? '<b>Final:</b> ' : ''}${esc(T[r.a].short)} ${r.sa} – ${r.sb} ${esc(T[r.b].short)}</div>`).join('');
+    const tables = groupsOf(c).map((g, gi) => `<table><tr><th>${c.size === 8 ? `Group ${'AB'[gi]}` : 'Group'}</th><th>P</th><th>W</th><th>L</th><th>+/-</th><th>Pts</th></tr>` +
+      standings(c, g).map((r, pos) => `<tr${r.i === 0 ? ' style="font-weight:800"' : ''}><td>${pos + 1}. ${name(r.i)}</td>
+      <td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td>${r.pts}</td></tr>`).join('') + '</table>').join('');
+    const label = { G: '', SF: '<b>Semi:</b> ', F: '<b>Final:</b> ' };
+    const res = c.results.slice(-8).map(r => `<div>${label[r.stage ?? 'G']}${esc(T[r.a].short)} ${r.sa} – ${r.sb} ${esc(T[r.b].short)}</div>`).join('');
     let headline = '';
     if (c.champion === 0) headline = `<div class="logo" style="font-size:56px">🏆</div><div class="mvp">${esc(T[0].name)} are cup champions!</div>`;
     else if (c.champion !== null) headline = `<div class="mvp">${esc(T[c.champion].name)} won the cup.${c.final?.includes(0) ? ' So close!' : ' Better luck next time!'}</div>`;
-    else if (c.round === 3) headline = `<div class="mvp">THE FINAL: ${esc(T[c.final![0]].short)} vs ${esc(T[c.final![1]].short)}</div>`;
+    else if (c.round === 4) headline = `<div class="mvp">THE FINAL: ${esc(T[c.final![0]].short)} vs ${esc(T[c.final![1]].short)}</div>`;
+    else if (c.round === 3) headline = `<div class="mvp">SEMI-FINALS: ${c.semis!.map(([a, b]) => `${esc(T[a].short)} vs ${esc(T[b].short)}`).join(' · ')}</div>`;
     this.show(`
       <h2>🏆 ${c.format === 'fives' ? 'Fives ' : ''}Cup</h2>
       ${headline}
-      <table><tr><th>Group</th><th>P</th><th>W</th><th>L</th><th>+/-</th><th>Pts</th></tr>${table}</table>
-      <div class="tag" style="font-size:13px">${res || 'No games played yet.'}</div>
+      ${tables}
+      <div class="tag" style="font-size:13px">${res ? 'Latest results:' + res : 'No games played yet.'}</div>
       <div class="row">
         <button class="btn alt" data-a="menu">Main menu</button>
         ${c.champion !== null ? '<button class="btn" data-a="again">New cup</button>' : ''}
-        ${opp !== null ? `<button class="btn" data-a="play">${c.round === 3 ? 'Play the final' : `Round ${c.round + 1}`}: vs ${esc(T[opp].short)}</button>` : ''}
+        ${opp !== null ? `<button class="btn" data-a="play">${stageName(c)}: vs ${esc(T[opp].short)}</button>` : ''}
         ${c.champion === null ? '<button class="btn alt" data-a="quit">Abandon cup</button>' : ''}
       </div>`, {
       menu: () => this.hooks.quit(),
@@ -385,6 +392,7 @@ export class Ui {
         : [['4 × 2 min', 2], ['4 × 3 min', 3], ['4 × 5 min', 5], ['4 × 8 min (real)', 8]])}</div></div>
       <div class="setting">Camera<div class="opts">${chips('camera', [['Full court', 'full'], ['Follow ball', 'follow']])}</div></div>
       <div class="setting">Sound<div class="opts">${chips('sound', [['On', true], ['Off', false]])}</div></div>
+      ${'speechSynthesis' in window ? `<div class="setting">Announcer voice<div class="opts">${chips('voice', [['On', true], ['Off', false]])}</div></div>` : ''}
       <div class="setting">Screen shake &amp; flashes<div class="opts">${chips('effects', [['On', true], ['Reduced', false]])}</div></div>
       ${'vibrate' in navigator ? `<div class="setting">Vibration<div class="opts">${chips('vibration', [['On', true], ['Off', false]])}</div></div>` : ''}
       <div class="setting">Auto-subs for your team<div class="opts">${chips('autoSubs', [['On', true], ['Off', false]])}</div></div>

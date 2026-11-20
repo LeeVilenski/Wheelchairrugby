@@ -87,3 +87,21 @@ export class Audio {
     s.connect(f).connect(g).connect(this.master); s.start(t, Math.random()); s.stop(t + dur + 0.05);
   }
 }
+
+/** Announcer voice using the browser's built-in speech synthesis (no downloads). */
+export class Announcer {
+  enabled = true;
+  private last = -Infinity;
+  say(text: string) {
+    const synth = window.speechSynthesis;
+    if (!this.enabled || !synth || performance.now() - this.last < 1200) return;
+    this.last = performance.now();
+    const line = text.toLowerCase();
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(line);
+    u.rate = 1.15; u.pitch = 1.05; u.volume = 0.9;
+    const v = synth.getVoices().find(v => /en[-_](GB|US|AU)/i.test(v.lang));
+    if (v) u.voice = v;
+    synth.speak(u);
+  }
+}

@@ -7,6 +7,7 @@ export class Fx {
   trails: Particle[] = [];
   flash = 0;                                    // screen flash alpha
   reduced = false;                              // reduced-effects setting
+  onShout: (text: string) => void = () => {};
   callout: { text: string; color: string; life: number } | null = null;
 
   private shoutCooldown = 0;
@@ -15,6 +16,7 @@ export class Fx {
     if (!important && this.shoutCooldown > 0) return false;
     this.callout = { text, color, life: 1.3 };
     this.shoutCooldown = important ? 2 : 5;
+    this.onShout(text);
     return true;
   }
   trail(x: number, y: number) {
