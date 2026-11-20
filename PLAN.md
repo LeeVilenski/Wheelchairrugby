@@ -23,7 +23,7 @@ Top-down 2D browser game. Real IWRF rules, arcade feel, customisable teams.
 6. ✅ Team editor: name/short/colours with live preview, up to 12 players (number, class, focus, ♀), 8.0 check, saved on device, share/import codes
 7. ✅ Arcade juice: Hype meter + HYPE boost, ON FIRE streaks, chain blocks, hit-stop/slow-mo, flashes, tyre trails, flames, announcer callouts, synthesised sound + crowd
 8. ✅ Team AI: press/trap schemes, picks, goal-line flooding, give-and-go passing, ball strips; Easy/Normal/Hard; 4-team Cup (group + final, saved on device)
-9. Polish, deploy
+9. ✅ Polish: auto-pause when hidden, screen wake lock, vibration, reduced-effects option, first-launch help hint, README
 
 ## Run
 `npm install && npm run dev`

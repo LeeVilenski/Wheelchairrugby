@@ -6,6 +6,7 @@ export class Fx {
   texts: FloatText[] = [];
   trails: Particle[] = [];
   flash = 0;                                    // screen flash alpha
+  reduced = false;                              // reduced-effects setting
   callout: { text: string; color: string; life: number } | null = null;
 
   private shoutCooldown = 0;
@@ -68,7 +69,7 @@ export class Fx {
 
   /** Screen-space layer: flash + announcer callout. */
   drawScreen(ctx: CanvasRenderingContext2D, w: number, h: number) {
-    if (this.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${this.flash * 0.5})`; ctx.fillRect(0, 0, w, h); }
+    if (this.flash > 0 && !this.reduced) { ctx.fillStyle = `rgba(255,255,255,${this.flash * 0.5})`; ctx.fillRect(0, 0, w, h); }
     const c = this.callout;
     if (!c) return;
     const t = 1.3 - c.life, s = Math.min(1, t * 6) * (1 + Math.max(0, 0.15 - t) * 3);

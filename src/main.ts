@@ -31,7 +31,9 @@ function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false) {
   match.skill = demo ? [0.6, 0.6] : [0.6, d.skill];
   match.speedMul = demo ? [1, 1] : [1, d.speed];
   match.autoSubs = [demo || ui.settings.autoSubs, true];
-  match.onShake = a => camera.addShake(a);
+  match.onShake = a => { if (ui.settings.effects) camera.addShake(a); };
+  match.reducedEffects = match.fx.reduced = !ui.settings.effects;
+  match.onVibrate = ms => { if (ui.settings.vibration && input.touchMode && !match.demo) navigator.vibrate?.(ms); };
   match.sfx = (n, v) => { if (!match.demo) audio.play(n, v); };
   match.onFullTime = () => {
     if (match.demo) { setTimeout(() => startDemo(), 4000); return; }
@@ -45,14 +47,29 @@ function startDemo() {
 }
 
 const ui = new Ui({
-  start: (home, away, cup) => { newMatch(home, away, false, cup); ui.close(); paused = false; },
+  start: (home, away, cup) => { newMatch(home, away, false, cup); ui.close(); paused = false; requestWakeLock(); },
   resume: () => { ui.close(); paused = false; },
-  quit: () => { startDemo(); ui.title(); },
+  quit: () => { startDemo(); ui.title(); releaseWakeLock(); },
   rematch: () => { newMatch(match.teams[0], match.teams[1], false); ui.close(); paused = false; },
-  settingsChanged: st => { camera.mode = st.camera; audio.setMuted(!st.sound); },
+  settingsChanged: st => {
+    camera.mode = st.camera; audio.setMuted(!st.sound);
+    match.reducedEffects = match.fx.reduced = !st.effects;
+  },
 });
 camera.mode = ui.settings.camera;
 audio.setMuted(!ui.settings.sound);
+
+// Phones: pause when the app is hidden, and keep the screen awake during a match.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) openPause();
+  else if (match && !match.demo && !paused) requestWakeLock();
+});
+let wakeLock: { release: () => Promise<void> } | null = null;
+async function requestWakeLock() {
+  try { wakeLock = await (navigator as unknown as { wakeLock?: { request: (t: string) => Promise<typeof wakeLock> } }).wakeLock?.request('screen') ?? null; }
+  catch { /* not supported or denied */ }
+}
+function releaseWakeLock() { wakeLock?.release().catch(() => {}); wakeLock = null; }
 
 function openPause() {
   if (match.demo || ui.isOpen || match.state.kind === 'over') return;

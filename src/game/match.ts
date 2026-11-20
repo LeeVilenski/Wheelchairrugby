@@ -197,7 +197,9 @@ export class Match {
     this.fx.shout(`${this.teams[team].short} HYPE TIME!`, '#ff8a3d', true);
     this.fx.flash = 0.6; this.sfx('hype');
   }
-  slowMotion(seconds: number, scale: number) { this.slowmo = seconds; this.slowScale = scale; }
+  reducedEffects = false;
+  onVibrate: (ms: number) => void = () => {};
+  slowMotion(seconds: number, scale: number) { if (this.reducedEffects) return; this.slowmo = seconds; this.slowScale = scale; }
 
   /** Teams may call a timeout with possession of the ball, or at a dead ball. */
   canTimeout(team: number) {
@@ -383,6 +385,7 @@ export class Match {
     const big = h.impact > 4;
     this.fx.sparks(h.x, h.y, h.impact);
     this.onShake(h.impact * (big ? 0.08 : 0.03));
+    if (big && (h.a.human || h.b.human)) this.onVibrate(Math.min(60, h.impact * 8));
     if (h.impact > 2.5 || this.hitSoundGap <= 0) { this.sfx('hit', h.impact); this.hitSoundGap = 0.08; }
     if (h.a.team === h.b.team) return false;
 
@@ -533,6 +536,7 @@ export class Match {
     this.score[scorer.team]++;
     this.stat(scorer.def).goals++;
     this.sfx('goal');
+    this.onVibrate(scorer.team === this.human.team ? 120 : 40);
     this.slowMotion(0.9, 0.3);
     this.fx.flash = 0.5;
     this.addHype(scorer.team, 0.08);

@@ -12,8 +12,11 @@ export interface Settings {
   autoSubs: boolean;
   sound: boolean;
   difficulty: 'easy' | 'normal' | 'hard';
+  effects: boolean;      // screen shake, flashes, slow-mo
+  vibration: boolean;
+  seenHelp: boolean;
 }
-const DEFAULTS: Settings = { rules: 'Arcade', quarterMinutes: 3, camera: 'full', autoSubs: true, sound: true, difficulty: 'normal' };
+const DEFAULTS: Settings = { rules: 'Arcade', quarterMinutes: 3, camera: 'full', autoSubs: true, sound: true, difficulty: 'normal', effects: true, vibration: true, seenHelp: false };
 
 export function loadSettings(): Settings {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('mb.settings') || '{}') }; } catch { return { ...DEFAULTS }; }
@@ -79,7 +82,7 @@ export class Ui {
         <button class="btn alt" data-a="cup">🏆 Cup</button>
         <button class="btn alt" data-a="editor">Team editor</button>
         <button class="btn alt" data-a="settings">Settings</button>
-        <button class="btn alt" data-a="help">How to play</button>
+        <button class="btn ${this.settings.seenHelp ? 'alt' : ''}" data-a="help">${this.settings.seenHelp ? 'How to play' : '👋 New? How to play'}</button>
       </div>`, {
       quick: () => {
         const T = allTeams();
@@ -91,7 +94,10 @@ export class Ui {
       cup: () => { const c = loadCup(); c ? this.cupScreen(c) : this.cupPick(); },
       editor: () => this.teamManager(),
       settings: () => { this.back = () => this.title(); this.settingsScreen(); },
-      help: () => { this.back = () => this.title(); this.helpScreen(); },
+      help: () => {
+        this.settings.seenHelp = true; saveSettings(this.settings);
+        this.back = () => this.title(); this.helpScreen();
+      },
     }, true);
   }
 
@@ -315,6 +321,8 @@ export class Ui {
       <div class="setting">Quarter length<div class="opts">${chips('quarterMinutes', [['2 min', 2], ['3 min', 3], ['5 min', 5], ['8 min (real)', 8]])}</div></div>
       <div class="setting">Camera<div class="opts">${chips('camera', [['Full court', 'full'], ['Follow ball', 'follow']])}</div></div>
       <div class="setting">Sound<div class="opts">${chips('sound', [['On', true], ['Off', false]])}</div></div>
+      <div class="setting">Screen shake &amp; flashes<div class="opts">${chips('effects', [['On', true], ['Reduced', false]])}</div></div>
+      ${'vibrate' in navigator ? `<div class="setting">Vibration<div class="opts">${chips('vibration', [['On', true], ['Off', false]])}</div></div>` : ''}
       <div class="setting">Auto-subs for your team<div class="opts">${chips('autoSubs', [['On', true], ['Off', false]])}</div></div>
       <p class="tag">Arcade: shorter penalties, only big spinning hits are fouls. Sim: strict IWRF calls. Changes apply from the next match (camera: now).</p>
       <div class="btns"><button class="btn" data-a="back">Done</button></div>`, {
