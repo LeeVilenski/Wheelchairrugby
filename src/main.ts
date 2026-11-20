@@ -2,22 +2,55 @@ import { drawCourt } from './game/court';
 import { Input, IDLE } from './core/input';
 import { Camera } from './core/camera';
 import { Match } from './game/match';
-import { DEFAULT_TEAMS } from './data/teams';
-import { RULES } from './game/rules';
+import { DEFAULT_TEAMS, type TeamDef } from './data/teams';
+import { RULES, type RuleSet } from './game/rules';
+import { Ui, type Settings } from './ui/ui';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 const input = new Input(canvas);
 const camera = new Camera();
-const match = new Match([DEFAULT_TEAMS[0], DEFAULT_TEAMS[1]]);
-match.onShake = a => camera.addShake(a);
-(window as unknown as { match: Match }).match = match; // handy for debugging
+let match: Match;
+let paused = false;
+(window as unknown as { app: unknown }).app = { get match() { return match; } }; // handy for debugging
+
+function rulesFrom(st: Settings): RuleSet { return { ...RULES[st.rules], quarterSeconds: st.quarterMinutes * 60 }; }
+
+function newMatch(home: TeamDef, away: TeamDef, demo: boolean) {
+  match = new Match([home, away], rulesFrom(ui.settings));
+  match.demo = demo;
+  match.autoSubs = [demo || ui.settings.autoSubs, true];
+  match.onShake = a => camera.addShake(a);
+  match.onFullTime = () => {
+    if (match.demo) { setTimeout(() => startDemo(), 4000); return; }
+    setTimeout(() => { paused = true; ui.fullTime(match); }, 2500);
+  };
+}
+function startDemo() {
+  const T = DEFAULT_TEAMS, a = Math.floor(Math.random() * T.length);
+  newMatch(T[a], T[(a + 1 + Math.floor(Math.random() * (T.length - 1))) % T.length], true);
+  paused = false;
+}
+
+const ui = new Ui({
+  start: (home, away) => { newMatch(home, away, false); ui.close(); paused = false; },
+  resume: () => { ui.close(); paused = false; },
+  quit: () => { startDemo(); ui.title(); },
+  rematch: () => { newMatch(match.teams[0], match.teams[1], false); ui.close(); paused = false; },
+  settingsChanged: st => { camera.mode = st.camera; },
+});
+camera.mode = ui.settings.camera;
+
+function openPause() {
+  if (match.demo || ui.isOpen || match.state.kind === 'over') return;
+  paused = true; ui.pause(match);
+}
 
 let W = 0, H = 0;
 const camBtn = { y: 12, w: 120, h: 36 };
+const pauseBtn = { y: 12, w: 44, h: 36 };
 input.tapTargets.push({ y: camBtn.y, w: camBtn.w, h: camBtn.h, get x() { return W - camBtn.w - 12; }, onTap: () => camera.toggle() });
-const toggleRules = () => match.setRules(match.rules.name === 'Arcade' ? RULES.Sim : RULES.Arcade);
-input.tapTargets.push({ y: camBtn.y + camBtn.h + 8, w: camBtn.w, h: 30, get x() { return W - camBtn.w - 12; }, onTap: toggleRules });
+input.tapTargets.push({ y: pauseBtn.y, w: pauseBtn.w, h: pauseBtn.h, get x() { return W - camBtn.w - 12 - pauseBtn.w - 8; }, onTap: openPause });
 
 function resize() {
   const dpr = Math.min(2, devicePixelRatio || 1);
@@ -37,8 +70,9 @@ function frame(now: number) {
   last = now;
   while (acc >= STEP) {
     if (input.wasPressed('KeyC')) camera.toggle();
-    if (input.wasPressed('KeyR')) toggleRules();
-    match.update(STEP, input.read() ?? IDLE);
+    const ctl = input.read() ?? IDLE;
+    if (input.wasPressed('Escape') || input.wasPressed('KeyP') || input.wasPressed('pad:start')) openPause();
+    if (!paused) match.update(STEP, ctl);
     input.endFrame();
     acc -= STEP;
   }
@@ -48,6 +82,7 @@ function frame(now: number) {
 }
 
 function render() {
+  const demo = match.demo;
   ctx.fillStyle = '#0d1117';
   ctx.fillRect(0, 0, W, H);
   ctx.save();
@@ -55,8 +90,7 @@ function render() {
   drawCourtLayer();
   match.draw(ctx);
   ctx.restore();
-  drawHud();
-  input.drawTouch(ctx);
+  if (!demo) { drawHud(); input.drawTouch(ctx); }
 }
 
 function drawCourtLayer() { drawCourt(ctx); }
@@ -110,11 +144,13 @@ function drawHud() {
   ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
   ctx.fillText(camera.mode === 'full' ? '🎥 FULL COURT' : '🎥 FOLLOW BALL', x + camBtn.w / 2, camBtn.y + camBtn.h / 2);
 
-  // Rules toggle
+  // Pause button + timeouts left
+  const px = x - pauseBtn.w - 8;
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.beginPath(); ctx.roundRect(x, camBtn.y + camBtn.h + 8, camBtn.w, 30, 8); ctx.fill();
-  ctx.fillStyle = match.rules.name === 'Sim' ? '#7dd3fc' : '#ffe14d';
-  ctx.fillText(`RULES: ${match.rules.name.toUpperCase()}`, x + camBtn.w / 2, camBtn.y + camBtn.h + 23);
+  ctx.beginPath(); ctx.roundRect(px, pauseBtn.y, pauseBtn.w, pauseBtn.h, 8); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.fillRect(px + 15, pauseBtn.y + 10, 5, 16); ctx.fillRect(px + 24, pauseBtn.y + 10, 5, 16);
+  ctx.font = '700 11px system-ui'; ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.fillText(`${match.rules.name.toUpperCase()} · TO ${match.timeouts[match.human.team]}`, W - 12, camBtn.y + camBtn.h + 14);
 
   // Banner
   const bn = match.banner;
@@ -131,7 +167,7 @@ function drawHud() {
 
   if (!input.touchMode) {
     ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.textAlign = 'left'; ctx.font = '600 12px system-ui';
-    ctx.fillText('W/↑ roll · A/D turn · SPACE push · E pass/switch · Q bounce · SHIFT brake · C camera · R rules', 12, H - 16);
+    ctx.fillText('W/↑ roll · A/D turn · SPACE push · E pass/switch · Q bounce · SHIFT brake · C camera · Esc pause', 12, H - 16);
   }
 }
 
@@ -155,3 +191,6 @@ installBtn.addEventListener('click', async () => {
 });
 // Lock to landscape where supported (installed app / fullscreen).
 (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape').catch(() => {});
+
+startDemo();
+ui.title();

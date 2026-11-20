@@ -121,11 +121,14 @@ export class Input {
       if (x && !this.gpX) c.pass = true;
       if (y && !this.gpY) c.bounce = true;
       this.gpX = x; this.gpY = y;
+      const st = !!gp.buttons[9]?.pressed;
+      if (st && !this.gpStart) this.pressed.add('pad:start');
+      this.gpStart = st;
       if (gp.buttons[1]?.pressed || (gp.buttons[7]?.value ?? 0) > 0.3) c.brake = true;
     }
     return c;
   }
-  private gpA = false; private gpX = false; private gpY = false;
+  private gpA = false; private gpX = false; private gpY = false; private gpStart = false;
 
   drawTouch(ctx: CanvasRenderingContext2D) {
     if (!this.touchMode) return;
