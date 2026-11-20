@@ -23,7 +23,11 @@ export class Match {
   score = [0, 0];
   state: State = { kind: 'play' };
   banner: { text: string; sub: string; color: string; life: number } | null = null;
-  human!: Chair;
+  /** People playing: P1 (and optionally P2), the team each controls, and their current chair. */
+  players: { team: number; chair: Chair | null }[] = [{ team: 0, chair: null }];
+  /** Player 1's chair (the single human in one-player games). */
+  get human(): Chair { return this.players[0].chair!; }
+  isHumanTeam(t: number) { return !this.demo && this.players.some(p => p.team === t); }
   onShake: (a: number) => void = () => {};
 
   rules: RuleSet = RULES.Arcade;
@@ -61,8 +65,10 @@ export class Match {
   private stripGap = 0;
   onDeadBall: () => void = () => {};
 
-  constructor(public teams: [TeamDef, TeamDef], rules: RuleSet = RULES.Arcade) {
+  constructor(public teams: [TeamDef, TeamDef], rules: RuleSet = RULES.Arcade, mode: '1p' | 'vs' | 'coop' = '1p') {
     this.rules = rules;
+    this.players = mode === 'vs' ? [{ team: 0, chair: null }, { team: 1, chair: null }]
+      : mode === 'coop' ? [{ team: 0, chair: null }, { team: 0, chair: null }] : [{ team: 0, chair: null }];
     this.newGame();
   }
 
@@ -73,8 +79,11 @@ export class Match {
       for (const p of t.players) { this.stamina.set(p, 1); this.stats.set(p, { goals: 0, hits: 0, steals: 0, fouls: 0 }); }
       for (const p of autoLineup(t.players, undefined, this.fmt)) this.chairs.push(new Chair(0, 0, 0, ti, t, p));
     });
-    this.human = undefined as unknown as Chair;
-    this.setHuman(this.team(0)[0]);
+    this.players.forEach((p, pi) => {
+      p.chair = null;
+      const free = this.team(p.team).find(c => !c.human);
+      if (free) this.setControl(pi, free);
+    });
     this.timeouts = [this.rules.timeouts, this.rules.timeouts]; this.turnovers = [0, 0]; this.waiting.clear();
     this.hype = [0, 0]; this.hypeTime = [0, 0]; this.onFire = [false, false]; this.streak = { team: -1, n: 0 };
     this.score = [0, 0]; this.fouls = [0, 0];
@@ -95,10 +104,17 @@ export class Match {
   attackDir(team: number) { return team === 0 ? 1 : -1; }
   get onCourt() { return this.chairs.filter(c => c.penalty <= 0); }
 
-  setHuman(c: Chair) {
-    if (this.human) this.human.human = false;
-    this.human = c; c.human = true;
+  /** Give player `pi` control of chair `c`. */
+  setControl(pi: number, c: Chair) {
+    const p = this.players[pi], old = p.chair;
+    if (old === c) return;
+    if (c.human) return; // owned by the other player
+    if (old) { old.human = false; old.player = 0; old.tag = ''; }
+    p.chair = c; c.human = true; c.player = pi + 1;
+    c.tag = this.players.length > 1 ? `P${pi + 1}` : '';
   }
+  setHuman(c: Chair) { this.setControl(0, c); }
+  playerOf(c: Chair) { return c.player - 1; }
 
   tipOff() {
     const L = COURT.length, W = COURT.width, mid = L / 2;
@@ -136,7 +152,13 @@ export class Match {
     this.ball.holder = c;
     c.holdTime = 0;
     if (c.team !== this.possTeam) this.newPossession(c.team);
-    if (c.team === this.human.team) this.setHuman(c);
+    if (!c.human && this.isHumanTeam(c.team)) {
+      // The player who threw the pass follows the ball; otherwise the first player on that team.
+      const passer = this.ball.lockChair;
+      let pi = passer?.human && passer.team === c.team ? this.playerOf(passer) : this.players.findIndex(p => p.team === c.team);
+      if (pi < 0) pi = 0;
+      this.setControl(pi, c);
+    }
   }
 
   newPossession(team: number) {
@@ -182,7 +204,7 @@ export class Match {
     c.stamina = this.stamina.get(incoming) ?? 1;
     this.chairs[this.chairs.indexOf(out)] = c;
     if (this.ball.holder === out) this.ball.holder = c;
-    if (out.human) this.setHuman(c);
+    if (out.human) { const pi = this.playerOf(out); out.human = false; out.player = 0; this.players[pi].chair = null; this.setControl(pi, c); }
     return true;
   }
 
@@ -201,7 +223,8 @@ export class Match {
     if (this.hypeTime[team] > 0) return;
     const before = this.hype[team];
     this.hype[team] = Math.min(1, before + amt);
-    if (before < 1 && this.hype[team] >= 1 && team === this.human.team && !this.demo) this.fx.text(this.human.x, this.human.y - 1.6, 'HYPE READY!', '#ff8a3d', 0.6);
+    const ctl = this.players.find(p => p.team === team)?.chair;
+    if (before < 1 && this.hype[team] >= 1 && ctl && !this.demo) this.fx.text(ctl.x, ctl.y - 1.6, 'HYPE READY!', '#ff8a3d', 0.6);
   }
   useHype(team: number) {
     if (this.hype[team] < 1 || this.hypeTime[team] > 0) return;
@@ -272,20 +295,20 @@ export class Match {
     c.x = COURT.length / 2 + (c.team === 0 ? -1.2 : 1.2) * slot; c.y = COURT.width + 1.0;
     c.vx = c.vy = 0; c.heading = -Math.PI / 2; c.keyTime = 0; c.inOwnKey = false;
     if (this.ball.holder === c) this.ball.holder = null;
-    if (c.human) this.switchHuman(true);
+    if (c.human) this.switchPlayer(this.playerOf(c));
     this.showBanner('PENALTY', `${what} — #${c.def.number} ${c.def.name} (${t.short}) to the box`, '#ff4040', 2);
     this.restartAfterFoul(c);
   }
 
   /** Swap a penalised player for a legal bench sub and queue their penalty. */
   private sendToWait(c: Chair): boolean {
-    const wasHuman = c.human, wasHolder = this.ball.holder === c;
+    const wasHolder = this.ball.holder === c;
     const options = this.bench(c.team).sort((a, b) => Math.abs(a.cls - c.cls) - Math.abs(b.cls - c.cls));
     const def = c.def, team = c.team;
     for (const p of options) if (this.swap(c, p)) {
       this.waiting.set(def, { team, secs: this.rules.penaltySeconds });
       if (wasHolder) this.ball.holder = null;
-      if (wasHuman) this.switchHuman();
+      // swap() hands a human player's control to the substitute
       return true;
     }
     return false; // no legal sub: fall back to the normal box
@@ -344,7 +367,8 @@ export class Match {
 
   bounce(c: Chair) { c.holdTime = 0; this.ball.bounceAnim = 0.4; }
 
-  update(dt: number, human: Controls) {
+  update(dt: number, human: Controls | Controls[]) {
+    const inputs = Array.isArray(human) ? human : [human];
     const ball = this.ball;
     // Slow motion / hit-stop: real time runs out, game time is scaled.
     if (this.slowmo > 0) { this.slowmo -= dt; dt *= this.slowScale; }
@@ -378,7 +402,7 @@ export class Match {
     const on = new Set(this.chairs.map(c => c.def));
     for (const [p, v] of this.stamina) if (!on.has(p)) this.stamina.set(p, Math.min(1, v + 0.04 * dt));
     // CPU teams call a timeout when exhausted and in possession.
-    for (const t of [0, 1]) if (this.autoSubs[t] && t !== this.human.team && this.canTimeout(t) && this.timeouts[t] > 1) {
+    for (const t of [0, 1]) if (this.autoSubs[t] && !this.isHumanTeam(t) && this.canTimeout(t) && this.timeouts[t] > 1) {
       const lu = this.lineup(t);
       if (lu.reduce((s, c) => s + c.stamina, 0) / lu.length < 0.3) { this.callTimeout(t); return; }
     }
@@ -387,14 +411,17 @@ export class Match {
       if (this.hypeTime[t] > 0) this.hypeTime[t] -= dt;
       // CPU teams use HYPE on the attack once over half way.
       const h = ball.holder;
-      if ((this.demo || t !== this.human.team) && this.hype[t] >= 1 && h?.team === t && (h.x - COURT.length / 2) * this.attackDir(t) > 0) this.useHype(t);
+      if (!this.isHumanTeam(t) && this.hype[t] >= 1 && h?.team === t && (h.x - COURT.length / 2) * this.attackDir(t) > 0) this.useHype(t);
     }
     if (this.chain.t > 0) this.chain.t -= dt;
     this.hitSoundGap -= dt; this.stripGap -= dt;
 
+    const acted = new Set<number>(); // a player's input drives one chair per step (switching mid-loop must not re-trigger)
     for (const c of this.onCourt) {
-      const ctl = c.human && !this.demo ? human : aiControls(c, this);
-      if (c.human && !this.demo && ctl.hype) this.useHype(c.team);
+      const isHuman = c.human && !this.demo && !acted.has(c.player);
+      if (isHuman) acted.add(c.player);
+      const ctl = isHuman ? inputs[c.player - 1] ?? IDLE : c.human && !this.demo ? IDLE : aiControls(c, this);
+      if (isHuman && ctl.hype) this.useHype(c.team);
       c.boost = this.hypeTime[c.team] > 0 ? 1 : this.onFire[c.team] ? 0.3 : 0;
       c.speedMul = this.speedMul[c.team];
       const holding = ball.holder === c;
@@ -410,8 +437,8 @@ export class Match {
         c.holdTime += dt;
         if (ctl.pass) { this.pass(c, ctl.aim ?? c.heading); this.sfx('pass'); }
         else if (ctl.bounce) { this.bounce(c); this.sfx('bounce'); }
-      } else if (c.human && ctl.pass) {
-        this.switchHuman();
+      } else if (isHuman && ctl.pass) {
+        this.switchPlayer(this.playerOf(c));
       }
     }
 
@@ -430,7 +457,7 @@ export class Match {
     const big = h.impact > 4;
     this.fx.sparks(h.x, h.y, h.impact);
     this.onShake(h.impact * (big ? 0.08 : 0.03));
-    if (big && (h.a.human || h.b.human)) this.onVibrate(Math.min(60, h.impact * 8));
+    if (big && (h.a.player === 1 || h.b.player === 1)) this.onVibrate(Math.min(60, h.impact * 8));
     if (h.impact > 2.5 || this.hitSoundGap <= 0) { this.sfx('hit', h.impact); this.hitSoundGap = 0.08; }
     if (h.a.team === h.b.team) return false;
 
@@ -598,18 +625,21 @@ export class Match {
     }, true);
   }
 
-  switchHuman(_force = false) {
-    const b = this.ball;
-    const mates = this.team(this.human.team).filter(c => c !== this.human);
+  /** Switch player `pi` to the free teammate nearest the ball. */
+  switchPlayer(pi = 0) {
+    const b = this.ball, p = this.players[pi];
+    const mates = this.team(p.team).filter(c => !c.human && c.tipped <= 0);
     mates.sort((a, c) => dist(a, b.x, b.y) - dist(c, b.x, b.y));
-    if (mates[0]) this.setHuman(mates[0]);
+    if (!mates[0]) return;
+    if (p.chair) { p.chair.human = false; p.chair.player = 0; p.chair.tag = ''; p.chair = null; }
+    this.setControl(pi, mates[0]);
   }
 
   goal(scorer: Chair) {
     this.score[scorer.team]++;
     this.stat(scorer.def).goals++;
     this.sfx('goal');
-    this.onVibrate(scorer.team === this.human.team ? 120 : 40);
+    this.onVibrate(scorer.team === this.players[0].team ? 120 : 40);
     this.slowMotion(0.9, 0.3);
     this.fx.flash = 0.5;
     this.addHype(scorer.team, 0.08);

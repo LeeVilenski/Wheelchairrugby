@@ -9,7 +9,9 @@ export class Chair {
   stamina = 1;
   pushCooldown = 0;
   holdTime = 0;          // seconds since last bounce/pickup while holding the ball
-  human = false;
+  human = false;         // controlled by a person (see `player`)
+  player = 0;            // 0 = CPU, 1 = P1, 2 = P2
+  tag = '';              // 'P1' / 'P2' label in two-player games
   keyTime = 0;           // seconds spent in the opponents' key (attacking)
   keyEnteredAt = 0;      // when this chair entered its own key (defending)
   inOwnKey = false;
@@ -173,10 +175,14 @@ export class Chair {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(this.def.number), this.x, this.y - r - 0.35);
+    if (this.tag) {
+      ctx.fillStyle = this.player === 2 ? '#22d3ee' : '#fff'; ctx.font = '900 0.38px system-ui';
+      ctx.fillText(this.tag, this.x, this.y - r - 1.2);
+    }
     if (this.human) {
       // "You" marker: bobbing arrow above the number
       const ty = this.y - r - 0.75 + Math.sin(performance.now() / 150) * 0.08;
-      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 0.05;
+      ctx.fillStyle = this.player === 2 ? '#22d3ee' : '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 0.05;
       ctx.beginPath(); ctx.moveTo(this.x - 0.28, ty - 0.3); ctx.lineTo(this.x + 0.28, ty - 0.3); ctx.lineTo(this.x, ty); ctx.closePath();
       ctx.fill(); ctx.stroke();
     }

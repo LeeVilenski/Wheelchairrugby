@@ -33,7 +33,7 @@ export function loadSettings(): Settings {
 export function saveSettings(s: Settings) { try { localStorage.setItem('mb.settings', JSON.stringify(s)); } catch { /* private mode */ } }
 
 export interface UiHooks {
-  start(home: TeamDef, away: TeamDef, cup?: boolean): void;
+  start(home: TeamDef, away: TeamDef, cup?: boolean, mode?: '1p' | 'vs' | 'coop'): void;
   resume(): void;
   quit(): void;
   rematch(): void;
@@ -48,6 +48,7 @@ export class Ui {
   el = document.getElementById('ui') as HTMLDivElement;
   settings = loadSettings();
   home = 0; away = 1;
+  mode: '1p' | 'vs' | 'coop' = '1p';
   private back: () => void = () => this.title();
   private actions: Record<string, (arg: string) => void> = {};
 
@@ -136,12 +137,16 @@ export class Ui {
     };
     this.show(`
       <h2>Choose teams${this.settings.format === 'fives' ? ' · Fives' : ''}</h2>
-      <div class="teams">${card(this.home, 'YOU', 'home')}<div class="vs">VS</div>${card(this.away, 'CPU', 'away')}</div>
+      <div class="row">${([['1p', '1 player'], ['vs', '2P versus'], ['coop', '2P co-op']] as const).map(([k, l]) =>
+        `<button class="chip ${this.mode === k ? 'on' : ''}" data-a="mode" data-v="${k}">${l}</button>`).join('')}</div>
+      ${this.mode !== '1p' ? '<p class="tag" style="font-size:13px">P1: WASD, Space push, E pass, Q bounce, F hype, Left Shift brake · P2: arrows, Enter push, . pass, , bounce, / hype, Right Shift brake. Two gamepads: one each.</p>' : ''}
+      <div class="teams">${card(this.home, this.mode === 'coop' ? 'P1 + P2' : this.mode === 'vs' ? 'P1' : 'YOU', 'home')}<div class="vs">VS</div>${card(this.away, this.mode === 'vs' ? 'P2' : 'CPU', 'away')}</div>
       <div class="row"><button class="btn alt" data-a="back">Back</button><button class="btn alt" data-a="edit">Team editor</button><button class="btn" data-a="go">Play</button></div>`, {
       edit: () => this.teamManager(),
       prev: s => cycle(s, -1), next: s => cycle(s, 1),
       back: () => this.title(),
-      go: () => this.hooks.start(T[this.home], T[this.away]),
+      go: () => this.hooks.start(T[this.home], T[this.away], false, this.mode),
+      mode: v => { this.mode = v as typeof this.mode; this.teamSelect(); },
     });
   }
 
@@ -448,21 +453,22 @@ export class Ui {
   }
 
   pause(m: Match) {
-    const team = m.human.team;
+    const teams = [...new Set(m.players.map(p => p.team))];
+    const lbl = (t: number) => teams.length > 1 ? ` · ${m.teams[t].short}` : '';
     this.show(`
       <h2>Paused</h2>
       <div class="score-big">${m.teams[0].short} ${m.score[0]} – ${m.score[1]} ${m.teams[1].short}</div>
       <div class="btns">
         <button class="btn" data-a="resume">Resume</button>
-        <button class="btn alt" data-a="timeout" ${m.canTimeout(team) ? '' : 'disabled'}>Timeout (${m.timeouts[team]} left)</button>
-        <button class="btn alt" data-a="subs" ${m.isDead ? '' : 'disabled'}>Substitutions${m.isDead ? '' : ' (dead ball only)'}</button>
+        ${teams.map(t => `<button class="btn alt" data-a="timeout" data-v="${t}" ${m.canTimeout(t) ? '' : 'disabled'}>Timeout${lbl(t)} (${m.timeouts[t]} left)</button>`).join('')}
+        ${teams.map(t => `<button class="btn alt" data-a="subs" data-v="${t}" ${m.isDead ? '' : 'disabled'}>Substitutions${lbl(t)}${m.isDead ? '' : ' (dead ball only)'}</button>`).join('')}
         <button class="btn alt" data-a="settings">Settings</button>
         <button class="btn alt" data-a="help">How to play</button>
         <button class="btn alt" data-a="quit">Quit to menu${loadCup() && this.inCup ? ' (counts as a loss)' : ''}</button>
       </div>`, {
       resume: () => this.hooks.resume(),
-      timeout: () => { m.callTimeout(team); this.subs(m); },
-      subs: () => this.subs(m),
+      timeout: v => { m.callTimeout(+v); this.subs(m, +v); },
+      subs: v => this.subs(m, +v),
       settings: () => { this.back = () => this.pause(m); this.settingsScreen(); },
       help: () => { this.back = () => this.pause(m); this.helpScreen(); },
       quit: () => {
@@ -475,8 +481,8 @@ export class Ui {
   inCup = false;
 
   private subOut: Chair | null = null;
-  subs(m: Match) {
-    const team = m.human.team, lineup = m.lineup(team), bench = m.bench(team);
+  subs(m: Match, team = m.human.team) {
+    const lineup = m.lineup(team), bench = m.bench(team);
     const out = this.subOut && lineup.includes(this.subOut) ? this.subOut : null;
     const defs = lineup.map(c => c.def), total = lineupPoints(defs), limit = lineupLimit(defs, m.fmt);
     const bar = (v: number) => `<div class="bar ${v < 0.35 ? 'low' : ''}"><i style="width:${Math.round(v * 100)}%"></i></div>`;
@@ -490,15 +496,15 @@ export class Ui {
         <span class="num">#${p.number}</span> ${esc(p.name)}${p.female ? ' ♀' : ''} <span class="cls">${pts(p.cls)}</span>${waiting ? '<br><small>Waiting to serve penalty</small>' : ''}${bar(m.stamina.get(p) ?? 1)}</button>`;
     }).join('');
     this.show(`
-      <h2>Substitutions</h2>
+      <h2>Substitutions · ${esc(m.teams[team].short)}</h2>
       <div class="points ${total > limit ? 'bad' : ''}">On court: ${pts(total)} / ${pts(limit)} points</div>
       <div class="tag">${out ? `Pick who replaces #${out.def.number} ${esc(out.def.name)}` : 'Tap a player on court to take them off'}</div>
       <div class="lineup">${onCards}</div>
       <div class="tag">Bench</div>
       <div class="lineup">${benchCards || '<i>No bench players</i>'}</div>
       <div class="btns"><button class="btn" data-a="done">Back to the game</button></div>`, {
-      out: v => { this.subOut = lineup[+v] === out ? null : lineup[+v]; this.subs(m); },
-      in: v => { if (out && m.substitute(out, bench[+v])) this.subOut = null; this.subs(m); },
+      out: v => { this.subOut = lineup[+v] === out ? null : lineup[+v]; this.subs(m, team); },
+      in: v => { if (out && m.substitute(out, bench[+v])) this.subOut = null; this.subs(m, team); },
       done: () => { this.subOut = null; this.hooks.resume(); },
     });
   }

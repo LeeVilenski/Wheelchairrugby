@@ -36,7 +36,7 @@ export class Input {
       if (!this.keys.has(e.code)) this.pressed.add(e.code);
       this.keys.add(e.code);
       this.touchMode = false;
-      if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+      if (e.code.startsWith('Arrow') || e.code === 'Space' || e.code === 'Slash' || e.code === 'Enter') e.preventDefault();
     });
     addEventListener('keyup', e => this.keys.delete(e.code));
     canvas.addEventListener('pointerdown', e => this.onDown(e));
@@ -89,54 +89,76 @@ export class Input {
   wasPressed(code: string) { return this.pressed.has(code); }
   endFrame() { this.pressed.clear(); }
 
-  read(): Controls {
-    const k = (...c: string[]) => c.some(x => this.keys.has(x));
-    const c: Controls = {
-      turn: (k('ArrowRight', 'KeyD') ? 1 : 0) - (k('ArrowLeft', 'KeyA') ? 1 : 0),
-      throttle: (k('ArrowUp', 'KeyW') ? 1 : 0) - (k('ArrowDown', 'KeyS') ? 1 : 0),
-      aim: null,
-      push: this.wasPressed('Space'),
-      brake: k('ShiftLeft', 'ShiftRight'),
-      pass: this.wasPressed('KeyE') || this.wasPressed('KeyJ'),
-      bounce: this.wasPressed('KeyQ') || this.wasPressed('KeyK'),
-      hype: this.wasPressed('KeyF') || this.wasPressed('KeyL'),
-    };
+  /** Per-pad snapshot for this step: held buttons and buttons newly pressed. */
+  private pads: { axes: readonly number[]; held: boolean[]; down: boolean[] }[] = [];
+  private padPrev = new Map<number, boolean[]>();
 
-    // Touch stick: aim + throttle by distance
-    if (this.stick.active) {
-      const dx = this.stick.x - this.stick.ox, dy = this.stick.y - this.stick.oy;
-      const mag = Math.min(1, Math.hypot(dx, dy) / this.stickRadius);
-      if (mag > 0.2) { c.aim = Math.atan2(dy, dx); c.throttle = mag; }
+  /** Poll gamepads once per step (edge detection for every pad). */
+  poll() {
+    this.pads = [];
+    for (const gp of navigator.getGamepads?.() ?? []) {
+      if (!gp) continue;
+      const held = gp.buttons.map(b => b.pressed || b.value > 0.3);
+      const prev = this.padPrev.get(gp.index) ?? [];
+      this.pads.push({ axes: gp.axes, held, down: held.map((h, i) => h && !prev[i]) });
+      this.padPrev.set(gp.index, held);
+      if (held[9] && !prev[9]) this.pressed.add('pad:start');
     }
-    if (this.wasPressed('btn:push')) c.push = true;
-    if (this.buttons[1].held) c.brake = true;
-    if (this.wasPressed('btn:pass')) c.pass = true;
-    if (this.wasPressed('btn:bounce')) c.bounce = true;
-    if (this.wasPressed('btn:hype')) c.hype = true;
+  }
 
-    // Gamepad: left stick aim, A push, B/RT brake
-    const gp = navigator.getGamepads?.().find(g => g);
-    if (gp) {
-      const ax = gp.axes[0] ?? 0, ay = gp.axes[1] ?? 0, mag = Math.min(1, Math.hypot(ax, ay));
+  /**
+   * Controls for player `pi` (0 = P1, 1 = P2).
+   * One player: WASD/arrows, touch and the first gamepad all drive P1.
+   * Two players: P1 = WASD + Space/E/Q/F/Left Shift, P2 = arrows + Enter/./,/'/'/Right Shift (or numpad 0-4);
+   * with two pads each player gets one, with one pad it goes to P2.
+   */
+  read(pi = 0, two = false): Controls {
+    const k = (...c: string[]) => c.some(x => this.keys.has(x));
+    const p = (...c: string[]) => c.some(x => this.wasPressed(x));
+    let c: Controls;
+    if (!two) {
+      c = {
+        turn: (k('ArrowRight', 'KeyD') ? 1 : 0) - (k('ArrowLeft', 'KeyA') ? 1 : 0),
+        throttle: (k('ArrowUp', 'KeyW') ? 1 : 0) - (k('ArrowDown', 'KeyS') ? 1 : 0),
+        aim: null, push: p('Space'), brake: k('ShiftLeft', 'ShiftRight'),
+        pass: p('KeyE', 'KeyJ'), bounce: p('KeyQ', 'KeyK'), hype: p('KeyF', 'KeyL'),
+      };
+    } else if (pi === 0) {
+      c = { turn: (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0), throttle: (k('KeyW') ? 1 : 0) - (k('KeyS') ? 1 : 0),
+        aim: null, push: p('Space'), brake: k('ShiftLeft'), pass: p('KeyE'), bounce: p('KeyQ'), hype: p('KeyF') };
+    } else {
+      c = { turn: (k('ArrowRight') ? 1 : 0) - (k('ArrowLeft') ? 1 : 0), throttle: (k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0),
+        aim: null, push: p('Enter', 'Numpad0'), brake: k('ShiftRight', 'Numpad3'), pass: p('Period', 'Numpad1'),
+        bounce: p('Comma', 'Numpad2'), hype: p('Slash', 'Numpad4') };
+    }
+
+    if (pi === 0) {
+      // Touch stick: aim + throttle by distance (player 1 only)
+      if (this.stick.active) {
+        const dx = this.stick.x - this.stick.ox, dy = this.stick.y - this.stick.oy;
+        const mag = Math.min(1, Math.hypot(dx, dy) / this.stickRadius);
+        if (mag > 0.2) { c.aim = Math.atan2(dy, dx); c.throttle = mag; }
+      }
+      if (this.wasPressed('btn:push')) c.push = true;
+      if (this.buttons[1].held) c.brake = true;
+      if (this.wasPressed('btn:pass')) c.pass = true;
+      if (this.wasPressed('btn:bounce')) c.bounce = true;
+      if (this.wasPressed('btn:hype')) c.hype = true;
+    }
+
+    // Gamepad: left stick aim, A push, X pass, Y bounce, RB hype, B/RT brake
+    const pad = !two ? this.pads[0] : this.pads.length >= 2 ? this.pads[pi] : pi === 1 ? this.pads[0] : undefined;
+    if (pad) {
+      const ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0, mag = Math.min(1, Math.hypot(ax, ay));
       if (mag > 0.25) { c.aim = Math.atan2(ay, ax); c.throttle = mag; }
-      const a = !!gp.buttons[0]?.pressed;
-      if (a && !this.gpA) c.push = true;
-      this.gpA = a;
-      const x = !!gp.buttons[2]?.pressed, y = !!gp.buttons[3]?.pressed;
-      if (x && !this.gpX) c.pass = true;
-      if (y && !this.gpY) c.bounce = true;
-      this.gpX = x; this.gpY = y;
-      const rb = !!gp.buttons[5]?.pressed;
-      if (rb && !this.gpRB) c.hype = true;
-      this.gpRB = rb;
-      const st = !!gp.buttons[9]?.pressed;
-      if (st && !this.gpStart) this.pressed.add('pad:start');
-      this.gpStart = st;
-      if (gp.buttons[1]?.pressed || (gp.buttons[7]?.value ?? 0) > 0.3) c.brake = true;
+      if (pad.down[0]) c.push = true;
+      if (pad.down[2]) c.pass = true;
+      if (pad.down[3]) c.bounce = true;
+      if (pad.down[5]) c.hype = true;
+      if (pad.held[1] || pad.held[7]) c.brake = true;
     }
     return c;
   }
-  private gpA = false; private gpX = false; private gpY = false; private gpStart = false; private gpRB = false;
   /** 0..1 hype charge, so the HYPE button can glow when ready. */
   hypeLevel = 0;
 

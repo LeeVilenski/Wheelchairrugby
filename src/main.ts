@@ -24,16 +24,20 @@ let paused = false;
 function rulesFrom(st: Settings, format = st.format, minutes = st.quarterMinutes): RuleSet { return buildRules(st.rules, format, minutes, st.custom); }
 
 const DIFF = { easy: { skill: 0.25, speed: 0.88 }, normal: { skill: 0.6, speed: 0.95 }, hard: { skill: 1, speed: 1 } };
-function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false) {
+type Mode = '1p' | 'vs' | 'coop';
+let mode: Mode = '1p';
+function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false, m: Mode = '1p') {
   const st = ui.settings;
   const c = cup ? loadCup() : null;
-  match = new Match([home, away], c ? rulesFrom(st, c.format ?? 'standard', c.quarterMinutes) : rulesFrom(st));
+  mode = demo ? '1p' : m;
+  match = new Match([home, away], c ? rulesFrom(st, c.format ?? 'standard', c.quarterMinutes) : rulesFrom(st), mode);
   match.demo = demo;
   ui.inCup = cup;
   const d = DIFF[st.difficulty];
-  match.skill = demo ? [0.6, 0.6] : [0.6, d.skill];
-  match.speedMul = demo ? [1, 1] : [1, d.speed];
-  match.autoSubs = [demo || ui.settings.autoSubs, true];
+  const vs = mode === 'vs';
+  match.skill = demo || vs ? [0.6, 0.6] : [0.6, d.skill];
+  match.speedMul = demo || vs ? [1, 1] : [1, d.speed];
+  match.autoSubs = [demo || st.autoSubs, !vs || st.autoSubs];
   match.onShake = a => { if (ui.settings.effects) camera.addShake(a); };
   match.reducedEffects = match.fx.reduced = !ui.settings.effects;
   match.fx.onShout = text => {
@@ -55,10 +59,10 @@ function startDemo() {
 }
 
 const ui = new Ui({
-  start: (home, away, cup) => { newMatch(home, away, false, cup); ui.close(); paused = false; requestWakeLock(); },
+  start: (home, away, cup, m) => { newMatch(home, away, false, cup, m); ui.close(); paused = false; requestWakeLock(); },
   resume: () => { ui.close(); paused = false; },
   quit: () => { startDemo(); ui.title(); releaseWakeLock(); },
-  rematch: () => { newMatch(match.teams[0], match.teams[1], false); ui.close(); paused = false; },
+  rematch: () => { newMatch(match.teams[0], match.teams[1], false, false, mode); ui.close(); paused = false; },
   settingsChanged: st => {
     camera.mode = st.camera; audio.setMuted(!st.sound);
     match.reducedEffects = match.fx.reduced = !st.effects;
@@ -108,7 +112,9 @@ function frame(now: number) {
   last = now;
   while (acc >= STEP) {
     if (input.wasPressed('KeyC')) camera.toggle();
-    const ctl = input.read() ?? IDLE;
+    input.poll();
+    const two = mode !== '1p';
+    const ctl = two ? [input.read(0, true), input.read(1, true)] : input.read() ?? IDLE;
     if (input.wasPressed('KeyM')) { ui.settings.sound = !ui.settings.sound; audio.setMuted(!ui.settings.sound); if (!ui.settings.sound) speechSynthesis?.cancel(); }
     if (input.wasPressed('Escape') || input.wasPressed('KeyP') || input.wasPressed('pad:start')) openPause();
     if (!paused) match.update(STEP, ctl);
@@ -177,21 +183,24 @@ function drawHud() {
     ctx.fillText(match.possTeam === 0 ? '◀' : '▶', match.possTeam === 0 ? W / 2 - 142 : W / 2 + 142, 30);
   }
 
-  // Human stamina
-  const p = match.human;
-  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(12, 12, 164, 20);
-  ctx.fillStyle = p.stamina > 0.25 ? '#4ade80' : '#f87171'; ctx.fillRect(14, 14, 160 * p.stamina, 16);
-  ctx.fillStyle = '#fff'; ctx.font = '700 12px system-ui'; ctx.textAlign = 'left';
-  ctx.fillText(`#${p.def.number} ${p.def.name} (${p.cls.toFixed(1)})`, 18, 22);
-
-  // Hype meter
-  const ht = match.human.team, hv = match.hypeTime[ht] > 0 ? match.hypeTime[ht] / 6 : match.hype[ht];
-  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(12, 36, 164, 14);
-  const ready = match.hype[ht] >= 1 || match.hypeTime[ht] > 0;
-  ctx.fillStyle = ready ? `hsl(${20 + Math.sin(performance.now() / 100) * 15},100%,55%)` : '#c2410c';
-  ctx.fillRect(14, 38, 160 * hv, 10);
-  ctx.fillStyle = '#fff'; ctx.font = '800 10px system-ui'; ctx.textAlign = 'left';
-  ctx.fillText(match.hypeTime[ht] > 0 ? '🔥 HYPE!' : match.hype[ht] >= 1 ? `🔥 READY: ${input.touchMode ? 'TAP 🔥' : 'PRESS F'}` : '🔥 HYPE', 18, 43);
+  // Player panels: stamina + hype. P1 top-left; P2 under it (or, in two-player games, also labelled).
+  match.players.forEach((pl, pi) => {
+    const p = pl.chair; if (!p) return;
+    const y0 = 12 + pi * 44, two = match.players.length > 1;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(12, y0, 164, 20);
+    ctx.fillStyle = p.stamina > 0.25 ? '#4ade80' : '#f87171'; ctx.fillRect(14, y0 + 2, 160 * p.stamina, 16);
+    ctx.fillStyle = '#fff'; ctx.font = '700 12px system-ui'; ctx.textAlign = 'left';
+    ctx.fillText(`${two ? `P${pi + 1} · ` : ''}#${p.def.number} ${p.def.name} (${p.cls.toFixed(1)})`, 18, y0 + 10);
+    // Hype meter (shared by the team)
+    const ht = pl.team, hv = match.hypeTime[ht] > 0 ? match.hypeTime[ht] / 6 : match.hype[ht];
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(12, y0 + 24, 164, 14);
+    const ready = match.hype[ht] >= 1 || match.hypeTime[ht] > 0;
+    ctx.fillStyle = ready ? `hsl(${20 + Math.sin(performance.now() / 100) * 15},100%,55%)` : '#c2410c';
+    ctx.fillRect(14, y0 + 26, 160 * hv, 10);
+    ctx.fillStyle = '#fff'; ctx.font = '800 10px system-ui';
+    const key = input.touchMode && pi === 0 ? 'TAP 🔥' : two ? (pi === 0 ? 'PRESS F' : 'PRESS /') : 'PRESS F';
+    ctx.fillText(match.hypeTime[ht] > 0 ? '🔥 HYPE!' : match.hype[ht] >= 1 ? `🔥 READY: ${key}` : '🔥 HYPE', 18, y0 + 31);
+  });
   // On fire badges by the score
   for (const t of [0, 1]) if (match.onFire[t]) {
     ctx.font = '20px system-ui'; ctx.textAlign = 'center';
@@ -228,7 +237,9 @@ function drawHud() {
 
   if (!input.touchMode) {
     ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.textAlign = 'left'; ctx.font = '600 12px system-ui';
-    ctx.fillText('W/↑ roll · A/D turn · SPACE push · E pass/switch · Q bounce · SHIFT brake · F hype · C camera · M mute · Esc pause', 12, H - 16);
+    ctx.fillText(mode !== '1p'
+      ? 'P1: WASD · Space push · E pass · Q bounce · F hype · L-Shift brake   |   P2: arrows · Enter push · . pass · , bounce · / hype · R-Shift brake'
+      : 'W/↑ roll · A/D turn · SPACE push · E pass/switch · Q bounce · SHIFT brake · F hype · C camera · M mute · Esc pause', 12, H - 16);
   }
 }
 
