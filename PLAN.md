@@ -16,8 +16,8 @@ Top-down 2D browser game. Real IWRF rules, arcade feel, customisable teams.
 
 ## Milestones
 1. ✅ Loop, court, one chair with momentum physics, camera modes, touch controls
-2. Ball: carry, pass, bounce; scoring
-3. 4v4 + basic AI, collisions, hits
+2. ✅ Ball: carry, pass, bounce, 10 s dribble, scoring, out of bounds, turnovers
+3. ✅ 4v4 + basic AI, mass-based collisions, hits, fumbles, player switching
 4. Referee: clocks, key rules, fouls, penalty box
 5. HUD, menus, quarters, timeouts, subs
 6. Team editor + classification budget, save/load/share

@@ -4,7 +4,11 @@ export interface Controls {
   aim: number | null;    // target heading in radians (stick steering), or null
   push: boolean;
   brake: boolean;
+  pass: boolean;         // pass, or switch player when not holding the ball
+  bounce: boolean;
 }
+
+export const IDLE: Controls = { turn: 0, throttle: 0, aim: null, push: false, brake: false, pass: false, bounce: false };
 
 interface Button { id: string; label: string; x: number; y: number; r: number; held: boolean; pointer: number | null; }
 
@@ -19,6 +23,8 @@ export class Input {
   buttons: Button[] = [
     { id: 'push', label: 'PUSH', x: 0, y: 0, r: 46, held: false, pointer: null },
     { id: 'brake', label: 'BRAKE', x: 0, y: 0, r: 36, held: false, pointer: null },
+    { id: 'pass', label: 'PASS', x: 0, y: 0, r: 40, held: false, pointer: null },
+    { id: 'bounce', label: 'BOUNCE', x: 0, y: 0, r: 32, held: false, pointer: null },
   ];
   /** Screen-space tap targets owned by the UI (e.g. camera toggle). */
   tapTargets: { x: number; y: number; w: number; h: number; onTap: () => void }[] = [];
@@ -39,10 +45,12 @@ export class Input {
 
   layout(w: number, h: number) {
     const s = Math.min(1.2, Math.max(0.8, Math.min(w, h) / 420));
-    const [push, brake] = this.buttons;
-    push.r = 46 * s; brake.r = 36 * s;
-    push.x = w - 80 * s; push.y = h - 90 * s;
-    brake.x = w - 175 * s; brake.y = h - 55 * s;
+    const [push, brake, pass, bounce] = this.buttons;
+    push.r = 46 * s; brake.r = 34 * s; pass.r = 40 * s; bounce.r = 32 * s;
+    push.x = w - 80 * s; push.y = h - 85 * s;
+    brake.x = w - 185 * s; brake.y = h - 62 * s;
+    pass.x = w - 160 * s; pass.y = h - 150 * s;
+    bounce.x = w - 70 * s; bounce.y = h - 190 * s;
   }
 
   private onDown(e: PointerEvent) {
@@ -86,6 +94,8 @@ export class Input {
       aim: null,
       push: this.wasPressed('Space'),
       brake: k('ShiftLeft', 'ShiftRight'),
+      pass: this.wasPressed('KeyE') || this.wasPressed('KeyJ'),
+      bounce: this.wasPressed('KeyQ') || this.wasPressed('KeyK'),
     };
 
     // Touch stick: aim + throttle by distance
@@ -96,6 +106,8 @@ export class Input {
     }
     if (this.wasPressed('btn:push')) c.push = true;
     if (this.buttons[1].held) c.brake = true;
+    if (this.wasPressed('btn:pass')) c.pass = true;
+    if (this.wasPressed('btn:bounce')) c.bounce = true;
 
     // Gamepad: left stick aim, A push, B/RT brake
     const gp = navigator.getGamepads?.().find(g => g);
@@ -105,11 +117,15 @@ export class Input {
       const a = !!gp.buttons[0]?.pressed;
       if (a && !this.gpA) c.push = true;
       this.gpA = a;
+      const x = !!gp.buttons[2]?.pressed, y = !!gp.buttons[3]?.pressed;
+      if (x && !this.gpX) c.pass = true;
+      if (y && !this.gpY) c.bounce = true;
+      this.gpX = x; this.gpY = y;
       if (gp.buttons[1]?.pressed || (gp.buttons[7]?.value ?? 0) > 0.3) c.brake = true;
     }
     return c;
   }
-  private gpA = false;
+  private gpA = false; private gpX = false; private gpY = false;
 
   drawTouch(ctx: CanvasRenderingContext2D) {
     if (!this.touchMode) return;
