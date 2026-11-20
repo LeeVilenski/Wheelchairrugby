@@ -1,6 +1,6 @@
 import type { Chair } from '../entities/chair';
 
-export interface HitEvent { a: Chair; b: Chair; impact: number; nx: number; ny: number; x: number; y: number; }
+export interface HitEvent { a: Chair; b: Chair; impact: number; aSpeed: number; bSpeed: number; nx: number; ny: number; x: number; y: number; }
 
 // Circle-vs-circle collisions with mass-weighted impulses.
 export function collideChairs(chairs: Chair[]): HitEvent[] {
@@ -18,11 +18,13 @@ export function collideChairs(chairs: Chair[]): HitEvent[] {
       b.x += nx * overlap * ib / (ia + ib); b.y += ny * overlap * ib / (ia + ib);
       const vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
       if (vn >= 0) continue;
+      // How fast each chair was driving into the other (decides who the hitter is).
+      const aSpeed = a.vx * nx + a.vy * ny, bSpeed = -(b.vx * nx + b.vy * ny);
       const e = 0.35;
       const jimp = -(1 + e) * vn / (ia + ib);
       a.vx -= jimp * ia * nx; a.vy -= jimp * ia * ny;
       b.vx += jimp * ib * nx; b.vy += jimp * ib * ny;
-      hits.push({ a, b, impact: -vn, nx, ny, x: a.x + nx * a.radius, y: a.y + ny * a.radius });
+      hits.push({ a, b, impact: -vn, aSpeed, bSpeed, nx, ny, x: a.x + nx * a.radius, y: a.y + ny * a.radius });
     }
   }
   return hits;

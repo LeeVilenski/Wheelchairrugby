@@ -1,7 +1,7 @@
 import type { Chair } from '../entities/chair';
 import type { Controls } from '../core/input';
 import { COURT } from '../game/court';
-import { dist, type Match } from '../game/match';
+import { dist, inKey, type Match } from '../game/match';
 
 // Basic per-player AI. Team tactics (presses, picks, key traps) come in milestone 8.
 export function aiControls(c: Chair, m: Match): Controls {
@@ -39,10 +39,11 @@ export function aiControls(c: Chair, m: Match): Controls {
 
   // Attacking without the ball
   if (holder.team === c.team) {
+    if (c.keyTime > 6) return steer(c, gx - dir * 4, c.y, 0.5);
     if (c.isDefensive) {
       // Low pointers clear a path: drive into the defender closest to the carrier's route.
       const d = nearest(opps.filter(o => (o.x - holder.x) * dir > -1), holder.x + dir * 2, holder.y);
-      if (d && dist(d, holder.x, holder.y) < 7) return steer(c, d.x, d.y, 0, true);
+      if (d && dist(d, holder.x, holder.y) < 7) return ramTarget(c, d);
     }
     const lanes = [W * 0.22, W * 0.5, W * 0.78];
     const lane = lanes[m.team(c.team).indexOf(c) % 3];
@@ -52,13 +53,20 @@ export function aiControls(c: Chair, m: Match): Controls {
 
   // Defending
   const chaser = nearest(m.team(c.team), holder.x, holder.y);
-  if (chaser === c) return steer(c, holder.x + holder.vx * 0.4, holder.y + holder.vy * 0.4, 0, true);
+  if (chaser === c) return ramTarget(c, holder, 0.4);
   // Mark an attacker: sit between them and our goal.
   const attackers = m.team(holder.team).filter(o => o !== holder);
   const myIdx = m.team(c.team).filter(o => o !== chaser).indexOf(c);
-  const mark = attackers[myIdx % attackers.length];
   const og = m.ownGoalX(c.team);
-  return steer(c, mark.x + (og - mark.x) * 0.25, mark.y + (W / 2 - mark.y) * 0.2, 0.6);
+  const mark = attackers.length ? attackers[Math.max(0, myIdx) % attackers.length] : holder;
+  let tx = mark.x + (og - mark.x) * 0.25;
+  const ty = mark.y + (W / 2 - mark.y) * 0.2;
+  const othersInKey = m.team(c.team).filter(o => o !== c && o.inOwnKey).length;
+  if (othersInKey >= m.rules.maxDefendersInKey && !c.inOwnKey
+      && inKey({ x: tx, y: ty, radius: c.radius * 2 }, og)) {
+    tx = og + dir * (COURT.keyDepth + c.radius * 2 + 0.3); // wait just outside the key
+  }
+  return steer(c, tx, ty, 0.6);
 }
 
 function steer(c: Chair, tx: number, ty: number, arrive: number, ram = false): Controls {
@@ -83,4 +91,17 @@ const clampY = (y: number) => Math.max(1, Math.min(COURT.width - 1, y));
 function clampX(x: number, team: number, m: Match) {
   const g = m.goalX(team);
   return team === 0 ? Math.min(g - 1.2, x) : Math.max(g + 1.2, x);
+}
+
+/** Drive into a target, but swing round to hit the side/front: hits behind the rear axle are spinning fouls. */
+function ramTarget(c: Chair, t: Chair, lead = 0): Controls {
+  const tx = t.x + t.vx * lead, ty = t.y + t.vy * lead;
+  const fx = Math.cos(t.heading), fy = Math.sin(t.heading);
+  const behind = ((c.x - t.x) * fx + (c.y - t.y) * fy) / Math.max(0.1, dist(c, t.x, t.y));
+  if (behind < -0.3) {
+    // Aim for a point beside the target instead of straight into its back.
+    const side = (c.x - t.x) * -fy + (c.y - t.y) * fx >= 0 ? 1 : -1;
+    return steer(c, tx - fy * side * 1.6 + fx * 0.8, ty + fx * side * 1.6 + fy * 0.8, 0);
+  }
+  return steer(c, tx, ty, 0, true);
 }

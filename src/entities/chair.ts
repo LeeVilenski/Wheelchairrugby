@@ -10,6 +10,10 @@ export class Chair {
   pushCooldown = 0;
   holdTime = 0;          // seconds since last bounce/pickup while holding the ball
   human = false;
+  keyTime = 0;           // seconds spent in the opponents' key (attacking)
+  keyEnteredAt = 0;      // when this chair entered its own key (defending)
+  inOwnKey = false;
+  penalty = 0;           // seconds left in the penalty box; > 0 = off court
 
   // Stats derived from classification: low pointers are heavy blockers, high pointers fast ball carriers.
   readonly cls: number;

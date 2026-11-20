@@ -3,6 +3,7 @@ import { Input, IDLE } from './core/input';
 import { Camera } from './core/camera';
 import { Match } from './game/match';
 import { DEFAULT_TEAMS } from './data/teams';
+import { RULES } from './game/rules';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -15,6 +16,8 @@ match.onShake = a => camera.addShake(a);
 let W = 0, H = 0;
 const camBtn = { y: 12, w: 120, h: 36 };
 input.tapTargets.push({ y: camBtn.y, w: camBtn.w, h: camBtn.h, get x() { return W - camBtn.w - 12; }, onTap: () => camera.toggle() });
+const toggleRules = () => match.setRules(match.rules.name === 'Arcade' ? RULES.Sim : RULES.Arcade);
+input.tapTargets.push({ y: camBtn.y + camBtn.h + 8, w: camBtn.w, h: 30, get x() { return W - camBtn.w - 12; }, onTap: toggleRules });
 
 function resize() {
   const dpr = Math.min(2, devicePixelRatio || 1);
@@ -34,6 +37,7 @@ function frame(now: number) {
   last = now;
   while (acc >= STEP) {
     if (input.wasPressed('KeyC')) camera.toggle();
+    if (input.wasPressed('KeyR')) toggleRules();
     match.update(STEP, input.read() ?? IDLE);
     input.endFrame();
     acc -= STEP;
@@ -72,6 +76,26 @@ function drawHud() {
   ctx.textAlign = 'center'; ctx.font = '900 22px system-ui';
   ctx.fillText(`${match.score[0]}  –  ${match.score[1]}`, W / 2, 30);
 
+  // Clocks: period + game clock, shot clock, 12 s backcourt clock
+  const per = match.period > 4 ? `OT${match.period - 4}` : `Q${match.period}`;
+  const cl = Math.max(0, match.clock), mm = Math.floor(cl / 60), ss = Math.floor(cl % 60);
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.beginPath(); ctx.roundRect(W / 2 - 95, 52, 190, 24, 8); ctx.fill();
+  ctx.font = '800 13px ui-monospace, monospace'; ctx.fillStyle = '#fff';
+  ctx.fillText(`${per}  ${mm}:${String(ss).padStart(2, '0')}`, W / 2 - 40, 64);
+  if (match.possTeam >= 0) {
+    const sc = Math.ceil(Math.max(0, match.shotClock));
+    ctx.fillStyle = sc <= 10 ? '#ff4040' : '#ffe14d';
+    ctx.fillText(`⏱${sc}`, W / 2 + 30, 64);
+    if (!match.crossedHalf) {
+      ctx.fillStyle = match.backcourtClock <= 4 ? '#ff4040' : '#7dd3fc';
+      ctx.fillText(`½${Math.ceil(Math.max(0, match.backcourtClock))}`, W / 2 + 70, 64);
+    }
+    // Possession arrow
+    ctx.fillStyle = match.teams[match.possTeam].primary;
+    ctx.fillText(match.possTeam === 0 ? '◀' : '▶', match.possTeam === 0 ? W / 2 - 142 : W / 2 + 142, 30);
+  }
+
   // Human stamina
   const p = match.human;
   ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(12, 12, 164, 20);
@@ -85,6 +109,12 @@ function drawHud() {
   ctx.beginPath(); ctx.roundRect(x, camBtn.y, camBtn.w, camBtn.h, 8); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
   ctx.fillText(camera.mode === 'full' ? '🎥 FULL COURT' : '🎥 FOLLOW BALL', x + camBtn.w / 2, camBtn.y + camBtn.h / 2);
+
+  // Rules toggle
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.beginPath(); ctx.roundRect(x, camBtn.y + camBtn.h + 8, camBtn.w, 30, 8); ctx.fill();
+  ctx.fillStyle = match.rules.name === 'Sim' ? '#7dd3fc' : '#ffe14d';
+  ctx.fillText(`RULES: ${match.rules.name.toUpperCase()}`, x + camBtn.w / 2, camBtn.y + camBtn.h + 23);
 
   // Banner
   const bn = match.banner;
@@ -101,7 +131,7 @@ function drawHud() {
 
   if (!input.touchMode) {
     ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.textAlign = 'left'; ctx.font = '600 12px system-ui';
-    ctx.fillText('W/↑ roll · A/D turn · SPACE push · E pass/switch · Q bounce · SHIFT brake · C camera', 12, H - 16);
+    ctx.fillText('W/↑ roll · A/D turn · SPACE push · E pass/switch · Q bounce · SHIFT brake · C camera · R rules', 12, H - 16);
   }
 }
 

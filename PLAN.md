@@ -18,7 +18,7 @@ Top-down 2D browser game. Real IWRF rules, arcade feel, customisable teams.
 1. ✅ Loop, court, one chair with momentum physics, camera modes, touch controls
 2. ✅ Ball: carry, pass, bounce, 10 s dribble, scoring, out of bounds, turnovers
 3. ✅ 4v4 + basic AI, mass-based collisions, hits, fumbles, player switching
-4. Referee: clocks, key rules, fouls, penalty box
+4. ✅ Referee: game/shot/12 s clocks, quarters + OT, key rules, spinning fouls, penalty box, Arcade/Sim presets
 5. HUD, menus, quarters, timeouts, subs
 6. Team editor + classification budget, save/load/share
 7. Arcade juice: Hype meter, effects, audio
