@@ -44,6 +44,8 @@ export class Match {
   waiting = new Map<PlayerDef, { team: number; secs: number }>();
   stamina = new Map<PlayerDef, number>();     // bench + on-court freshness, by player
   stats = new Map<PlayerDef, PlayerStats>();
+  /** Players who took the court at some point (season XP). */
+  playedBy = new Set<PlayerDef>();
   turnovers = [0, 0];
   demo = false;
   skill = [0.6, 0.6];                         // AI quality per team (0..1)
@@ -74,10 +76,10 @@ export class Match {
 
   newGame() {
     this.chairs = [];
-    this.stamina.clear(); this.stats.clear();
+    this.stamina.clear(); this.stats.clear(); this.playedBy.clear();
     this.teams.forEach((t, ti) => {
       for (const p of t.players) { this.stamina.set(p, 1); this.stats.set(p, { goals: 0, hits: 0, steals: 0, fouls: 0 }); }
-      for (const p of autoLineup(t.players, undefined, this.fmt)) this.chairs.push(new Chair(0, 0, 0, ti, t, p));
+      for (const p of autoLineup(t.players, undefined, this.fmt)) { this.chairs.push(new Chair(0, 0, 0, ti, t, p)); this.playedBy.add(p); }
     });
     this.players.forEach((p, pi) => {
       p.chair = null;
@@ -202,6 +204,7 @@ export class Match {
     if (!validLineup(after, this.fmt)) return false;
     this.stamina.set(out.def, out.stamina);
     const c = new Chair(out.x, out.y, out.heading, out.team, out.teamDef, incoming);
+    this.playedBy.add(incoming);
     c.stamina = this.stamina.get(incoming) ?? 1;
     this.chairs[this.chairs.indexOf(out)] = c;
     if (this.ball.holder === out) this.ball.holder = c;

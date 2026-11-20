@@ -9,9 +9,12 @@ A fast, top-down 4v4 wheelchair rugby game for the browser and phone, built on t
   10 s attacker limit in the key · max 3 defenders in the key · spinning fouls · penalty box · 8.0-point classification limit (+0.5 per female player) ·
   quarters, overtime, timeouts and substitutions. Arcade (looser) and Sim (strict IWRF) presets.
 - **Arcade feel:** momentum physics and big hits, Hype meter, ON FIRE streaks, chain blocks, slow-mo, announcer callouts, synthesised sound.
-- **Teams:** 6 fictional presets, plus a team editor (colours, up to 12 players with class, focus and ♀) and shareable team codes.
+- **Teams:** 8 fictional presets, plus a team editor (colours, kit pattern, badge, up to 12 players with class, ♀, six stats on an 18-point budget and looks) and shareable team codes.
 - **Formats:** Standard (IWRF 4v4, 8.0 points, 4 quarters) and **Fives** (GBWR CD-001: 5v5, 10.0 points, two halves, running clock except the last 2 min, 2 timeouts, max 3 in the penalty box).
-- **Modes:** Quick match, Exhibition, 4-team Cup; Easy/Normal/Hard CPU with press/trap defences and picks.
+- **Modes:** Quick match, Exhibition (1 player, 2P versus, 2P co-op), 4- or 8-team Cup, Season with player progression, 🎓 Training drills;
+  Easy/Normal/Hard CPU with press/trap defences and picks.
+- **Rules presets:** Arcade, Sim (strict IWRF) and Custom (switch individual rules on or off). Spinning, holding and illegal-use-of-hands fouls; chairs can tip over on huge hits.
+- **Presentation:** team badges and kit patterns, player looks (skin, hair, gloves), announcer voice (browser speech).
 - **Controls:** touch (floating stick + buttons), keyboard and gamepad. Full-court or follow-ball camera.
 
 | Action | Keyboard | Gamepad | Touch |
@@ -23,6 +26,8 @@ A fast, top-down 4v4 wheelchair rugby game for the browser and phone, built on t
 | Brake | Shift | B / RT | BRAKE |
 | Hype | F | RB | 🔥 |
 | Pause | Esc / P | Start | ⏸ |
+
+Two players on one keyboard: P1 uses WASD + Space / E / Q / F / Left Shift; P2 uses the arrows + Enter / . / , / / / Right Shift.
 | Camera / mute | C / M | | top-right button |
 
 ## Develop

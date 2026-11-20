@@ -7,6 +7,7 @@ import { buildRules, type RuleSet } from './game/rules';
 import { canField, FORMATS } from './data/teams';
 import { Ui, type Settings } from './ui/ui';
 import { loadCup } from './game/cup';
+import { loadSeason } from './game/season';
 import { DRILLS, markDone, trainingMatch } from './game/training';
 import { Audio, Announcer } from './core/audio';
 
@@ -27,9 +28,10 @@ function rulesFrom(st: Settings, format = st.format, minutes = st.quarterMinutes
 const DIFF = { easy: { skill: 0.25, speed: 0.88 }, normal: { skill: 0.6, speed: 0.95 }, hard: { skill: 1, speed: 1 } };
 type Mode = '1p' | 'vs' | 'coop';
 let mode: Mode = '1p';
-function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false, m: Mode = '1p') {
+function newMatch(home: TeamDef, away: TeamDef, demo: boolean, cup = false, m: Mode = '1p', season = false) {
   const st = ui.settings;
-  const c = cup ? loadCup() : null;
+  const c = cup ? loadCup() : season ? loadSeason() : null;
+  ui.inSeason = season;
   mode = demo ? '1p' : m;
   match = new Match([home, away], c ? rulesFrom(st, c.format ?? 'standard', c.quarterMinutes) : rulesFrom(st), mode);
   match.demo = demo;
@@ -55,7 +57,7 @@ function wireMatch() {
   match.sfx = (n, v) => { if (!match.demo) audio.play(n, v); };
   match.onFullTime = () => {
     if (match.demo) { setTimeout(() => startDemo(), 4000); return; }
-    setTimeout(() => { paused = true; ui.fullTime(match, ui.inCup); }, 2500);
+    setTimeout(() => { paused = true; ui.fullTime(match, ui.inCup || ui.inSeason); }, 2500);
   };
 }
 function startDemo() {
@@ -96,9 +98,9 @@ function trainingStep(dt: number) {
 }
 
 const ui = new Ui({
-  start: (home, away, cup, m) => { newMatch(home, away, false, cup, m); ui.close(); paused = false; requestWakeLock(); },
+  start: (home, away, cup, m, season) => { newMatch(home, away, false, cup, m, season); ui.close(); paused = false; requestWakeLock(); },
   resume: () => { ui.close(); paused = false; },
-  quit: () => { training = null; startDemo(); ui.title(); releaseWakeLock(); },
+  quit: () => { training = null; ui.inCup = ui.inSeason = false; startDemo(); ui.title(); releaseWakeLock(); },
   training: (i: number) => startDrill(i),
   rematch: () => { newMatch(match.teams[0], match.teams[1], false, false, mode); ui.close(); paused = false; },
   settingsChanged: st => {

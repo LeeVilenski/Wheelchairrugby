@@ -3,6 +3,7 @@ import { FIVES, FOCUS, FOCUS_STATS, FORMATS, GLOVES, HAIR_COLORS, HAIR_STYLES, L
 import { CLASSES, MAX_ROSTER, allTeams, decodeTeam, deleteTeam, encodeTeam, isCustom, newId, saveTeam, teamProblems, type StoredTeam } from '../data/store';
 import { Chair } from '../entities/chair';
 import { DRILLS, completedDrills } from '../game/training';
+import { XP_PER_LEVEL, loadSeason, newSeason, nextOpponent as seasonOpponent, recordSeasonResult, saveSeason, table as seasonTable, type Progress, type Season } from '../game/season';
 import { teamLogo } from './logo';
 import { groupsOf, loadCup, newCup, nextOpponent, recordResult, saveCup, stageName, standings, type Cup } from '../game/cup';
 import type { Match } from '../game/match';
@@ -34,7 +35,7 @@ export function loadSettings(): Settings {
 export function saveSettings(s: Settings) { try { localStorage.setItem('mb.settings', JSON.stringify(s)); } catch { /* private mode */ } }
 
 export interface UiHooks {
-  start(home: TeamDef, away: TeamDef, cup?: boolean, mode?: '1p' | 'vs' | 'coop'): void;
+  start(home: TeamDef, away: TeamDef, cup?: boolean, mode?: '1p' | 'vs' | 'coop', season?: boolean): void;
   resume(): void;
   quit(): void;
   rematch(): void;
@@ -92,6 +93,7 @@ export class Ui {
         <button class="btn" data-a="quick">Quick match</button>
         <button class="btn alt" data-a="teams">Exhibition</button>
         <button class="btn alt" data-a="cup">🏆 Cup</button>
+        <button class="btn alt" data-a="season">📅 Season</button>
         <button class="btn alt" data-a="train">🎓 Training</button>
         <button class="btn alt" data-a="editor">Team editor</button>
         <button class="btn alt" data-a="settings">Settings</button>
@@ -104,9 +106,10 @@ export class Ui {
         this.hooks.start(T[this.home], T[this.away]);
       },
       teams: () => this.teamSelect(),
-      cup: () => { const c = loadCup(); c ? this.cupScreen(c) : this.cupPick(); },
+      cup: () => { const c = loadCup(); c ?this.cupScreen(c) : this.cupPick(); },
       editor: () => this.teamManager(),
       train: () => this.trainingMenu(),
+      season: () => { const se = loadSeason(); se ? this.seasonScreen(se) : this.seasonPick(); },
       settings: () => { this.back = () => this.title(); this.settingsScreen(); },
       help: () => {
         this.settings.seenHelp = true; saveSettings(this.settings);
@@ -153,6 +156,62 @@ export class Ui {
       mode: v => { this.mode = v as typeof this.mode; this.teamSelect(); },
     });
   }
+
+  // ---------------- Season ----------------
+  private seasonTeam = 0;
+  seasonPick(prev?: Season) {
+    const T = this.playable();
+    if (this.seasonTeam >= T.length) this.seasonTeam = 0;
+    const t = T[this.seasonTeam];
+    this.show(`
+      <h2>📅 Season: choose your team</h2>
+      <p class="tag">A six-team league: play every team once. Your players earn XP and level up, gaining stat points that carry into the next season.</p>
+      <div class="team-card" style="--c:${t.primary};max-width:360px;margin:0 auto;width:100%">
+        <div class="row"><button class="chip" data-a="prev">◀</button><div class="name">${esc(t.name)}</div><button class="chip" data-a="next">▶</button></div>
+        <div>${teamLogo(t, 48)}</div>
+      </div>
+      <div class="row"><button class="btn alt" data-a="back">Back</button><button class="btn" data-a="go">Start season</button></div>`, {
+      prev: () => { this.seasonTeam = (this.seasonTeam - 1 + T.length) % T.length; this.seasonPick(prev); },
+      next: () => { this.seasonTeam = (this.seasonTeam + 1) % T.length; this.seasonPick(prev); },
+      back: () => this.title(),
+      go: () => { const se = newSeason(T[this.seasonTeam], T, this.settings.quarterMinutes, this.settings.format, prev); saveSeason(se); this.seasonScreen(se); },
+    });
+  }
+
+  seasonScreen(se: Season, report: Progress[] = []) {
+    const T = se.teams, opp = seasonOpponent(se), done = se.round >= 5;
+    const rows = seasonTable(se).map((r, pos) => `<tr${r.i === 0 ? ' style="font-weight:800"' : ''}><td>${pos + 1}. ${teamLogo(T[r.i], 22)} ${esc(T[r.i].name)}${r.i === 0 ? ' (you)' : ''}</td>
+      <td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td>${r.pts}</td></tr>`).join('');
+    const champ = done ? seasonTable(se)[0].i : null;
+    const squad = T[0].players.map(p => {
+      const xp = p.xp ?? 0, lvl = Math.floor(xp / XP_PER_LEVEL) + 1, frac = (xp % XP_PER_LEVEL) / XP_PER_LEVEL;
+      const bonus = Object.entries(p.bonus ?? {}).filter(([, v]) => v).map(([k, v]) => `${STAT_LABELS[k as keyof Stats]} +${v}`).join(', ');
+      return `<div class="pcard" style="cursor:default"><span class="num">#${p.number}</span> ${esc(p.name)} <span class="cls">${pts(p.cls)}</span>
+        <br><small>Level ${lvl}${bonus ? ` · ${bonus}` : ''}</small><div class="bar"><i style="width:${Math.round(frac * 100)}%;background:#ffe14d"></i></div></div>`;
+    }).join('');
+    const rep = report.filter(r => r.xp > 0).map(r => `<div>#${r.number} ${esc(r.name)}: +${r.xp} XP${r.levels ? ` · <b style="color:#ffe14d">LEVEL UP${r.gained.length ? ': ' + r.gained.map(g => STAT_LABELS[g] + ' +1').join(', ') : ''}</b>` : ''}</div>`).join('');
+    this.show(`
+      <h2>📅 Season ${se.year}${se.format === 'fives' ? ' · Fives' : ''}</h2>
+      ${done ? `<div class="mvp">${champ === 0 ? `🏆 ${esc(T[0].name)} are league champions!` : `${esc(T[champ!].name)} win the league.`}</div>` : ''}
+      ${se.champions.length ? `<div class="tag">Titles: ${se.champions.map(y => `Season ${y}`).join(', ')}</div>` : ''}
+      ${rep ? `<div class="help" style="font-size:13px"><b>Last match</b>${rep}</div>` : ''}
+      <table><tr><th>League</th><th>P</th><th>W</th><th>L</th><th>+/-</th><th>Pts</th></tr>${rows}</table>
+      <div class="tag">Squad (XP: playing time, goals, big hits, steals and wins; every ${XP_PER_LEVEL} XP is a level and +1 stat)</div>
+      <div class="lineup">${squad}</div>
+      <div class="row">
+        <button class="btn alt" data-a="menu">Main menu</button>
+        ${opp !== null ? `<button class="btn" data-a="play">Round ${se.round + 1} of 5: vs ${esc(T[opp].short)}</button>` : ''}
+        ${done ? '<button class="btn" data-a="next">Next season</button><button class="btn alt" data-a="keep">Save squad to Team editor</button>' : ''}
+        <button class="btn alt" data-a="quit">${done ? 'End career' : 'Abandon season'}</button>
+      </div>`, {
+      menu: () => this.hooks.quit(),
+      play: () => { if (opp !== null) this.hooks.start(T[0], T[opp], false, '1p', true); },
+      next: () => { const pool = this.playable().filter(t => t.name !== T[0].name); const ns = newSeason(T[0], [T[0], ...pool], se.quarterMinutes, se.format, se); saveSeason(ns); this.seasonScreen(ns); },
+      keep: () => { saveTeam({ ...structuredClone(T[0]), id: newId(), name: (T[0].name + ' ' + se.year).slice(0, 24) }); this.seasonScreen(se, report); alert('Saved to the Team editor.'); },
+      quit: () => { if (confirm(done ? 'End this career? Progress will be lost.' : 'Abandon this season?')) { saveSeason(null); this.title(); } },
+    });
+  }
+  inSeason = false;
 
   trainingMenu(msg = '') {
     const done = new Set(completedDrills());
@@ -451,7 +510,10 @@ export class Ui {
         <h3>Controls</h3>
         <b>Touch:</b> drag on the left half to steer, tap PUSH for speed, PASS to pass (or switch player on defence), BOUNCE to reset the 10 s dribble clock.<br>
         <b>Keyboard:</b> W/↑ roll · A/D turn · Space push · E pass/switch · Q bounce · Shift brake · C camera · F hype · M mute · Esc pause.<br>
-        <b>Gamepad:</b> left stick steer · A push · X pass · Y bounce · B brake · RB hype · Start pause.
+        <b>Gamepad:</b> left stick steer · A push · X pass · Y bounce · B brake · RB hype · Start pause.<br>
+        <b>Two players (Exhibition):</b> P1 WASD, Space push, E pass, Q bounce, F hype, Left Shift brake · P2 arrows, Enter push, . pass, , bounce, / hype, Right Shift brake. Or one gamepad each.
+        New to the game? Try <b>🎓 Training</b> on the title screen.
+        <h3>Contact</h3>Hitting chairs is legal and part of the game. But hitting a chair behind its rear axle (spinning), holding a carrier, and reaching in from the side or behind with your hands are fouls. Really big hits can tip a chair over.
         <h3>Hype</h3>Big hits, steals, interceptions and goals fill your 🔥 meter. When it's full, hit HYPE for 6 seconds of extra speed and hits that always knock the ball loose. Score 3 in a row and your team is ON FIRE until the other team scores.
         <h3>Scoring</h3>Carry the ball over the opponents' goal line between the orange cones.
         <h3>Rules</h3>
@@ -480,7 +542,7 @@ export class Ui {
         ${teams.map(t => `<button class="btn alt" data-a="subs" data-v="${t}" ${m.isDead ? '' : 'disabled'}>Substitutions${lbl(t)}${m.isDead ? '' : ' (dead ball only)'}</button>`).join('')}
         <button class="btn alt" data-a="settings">Settings</button>
         <button class="btn alt" data-a="help">How to play</button>
-        <button class="btn alt" data-a="quit">Quit to menu${loadCup() && this.inCup ? ' (counts as a loss)' : ''}</button>
+        <button class="btn alt" data-a="quit">Quit to menu${(loadCup() && this.inCup) || (loadSeason() && this.inSeason) ? ' (counts as a loss)' : ''}</button>
       </div>`, {
       resume: () => this.hooks.resume(),
       timeout: v => { m.callTimeout(+v); this.subs(m, +v); },
@@ -490,6 +552,8 @@ export class Ui {
       quit: () => {
         const c = loadCup();
         if (c && this.inCup) { recordResult(c, m.score[0], Math.max(m.score[1], m.score[0] + 1)); /* quitting forfeits */ saveCup(c); }
+        const se = loadSeason();
+        if (se && this.inSeason) { recordSeasonResult(se, m.score[0], Math.max(m.score[1], m.score[0] + 1), []); saveSeason(se); }
         this.hooks.quit();
       },
     });
@@ -541,8 +605,13 @@ export class Ui {
       ${mvp ? `<div class="mvp">MVP: #${mvp.p.number} ${esc(mvp.p.name)} (${mvp.t.short}) — ${plural(mvp.s.goals, 'goal')}, ${plural(mvp.s.hits, 'big hit')}, ${plural(mvp.s.steals, 'steal')}</div>` : ''}
       <table><tr><th>Player</th><th>Goals</th><th>Big hits</th><th>Steals</th><th>Fouls</th></tr>${rows}</table>
       <div class="tag">Turnovers: ${T[0].short} ${m.turnovers[0]} · ${T[1].short} ${m.turnovers[1]} &nbsp; Fouls: ${T[0].short} ${m.fouls[0]} · ${T[1].short} ${m.fouls[1]}</div>
-      <div class="row">${cup ? '<button class="btn" data-a="cup">Continue cup</button>'
+      <div class="row">${this.inSeason ? '<button class="btn" data-a="season">Continue season</button>' : cup ? '<button class="btn" data-a="cup">Continue cup</button>'
         : '<button class="btn" data-a="again">Rematch</button><button class="btn alt" data-a="menu">Main menu</button>'}</div>`, {
+      season: () => {
+        const se = loadSeason(); if (!se) return this.title();
+        const lines = m.teams[0].players.map(p => { const st = m.stat(p); return { goals: st.goals, hits: st.hits, steals: st.steals, played: m.playedBy.has(p) }; });
+        const rep = recordSeasonResult(se, m.score[0], m.score[1], lines); saveSeason(se); this.seasonScreen(se, rep);
+      },
       cup: () => { const c = loadCup(); if (c) { recordResult(c, m.score[0], m.score[1]); saveCup(c); this.cupScreen(c); } else this.title(); },
       again: () => this.hooks.rematch(),
       menu: () => this.hooks.quit(),
