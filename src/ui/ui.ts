@@ -497,7 +497,7 @@ export class Ui {
     const onOff: [string, unknown][] = [['On', true], ['Off', false]];
     return [
       row('Based on', 'base', [['Arcade', 'Arcade'], ['Sim', 'Sim']]),
-      row('10 s dribble', 'dribble', onOff), row('40 s shot clock', 'shotClock', onOff), row('12 s half court', 'backcourt', onOff),
+      row('8 s dribble', 'dribble', onOff), row('40 s shot clock', 'shotClock', onOff), row('12 s half court', 'backcourt', onOff),
       row('Key rules', 'keyRules', onOff), row('Spinning fouls', 'spinning', onOff), row('Holding / hands fouls', 'handsFouls', onOff),
       row('Chairs tip over', 'tipping', onOff), row('Penalty length', 'longPenalties', [['30 s', false], ['60 s', true]]),
     ].join('');
@@ -508,7 +508,7 @@ export class Ui {
       <h2>How to play</h2>
       <div class="help">
         <h3>Controls</h3>
-        <b>Touch:</b> drag on the left half to steer, tap PUSH for speed, PASS to pass (or switch player on defence), BOUNCE to reset the 10 s dribble clock.<br>
+        <b>Touch:</b> drag on the left half to steer, tap PUSH for speed, PASS to pass (or switch player on defence), BOUNCE to reset the 8 s dribble clock.<br>
         <b>Keyboard:</b> W/↑ roll · A/D turn · Space push · E pass/switch · Q bounce · Shift brake · C camera · F hype · M mute · Esc pause.<br>
         <b>Gamepad:</b> left stick steer · A push · X pass · Y bounce · B brake · RB hype · Start pause.<br>
         <b>Two players (Exhibition):</b> P1 WASD, Space push, E pass, Q bounce, F hype, Left Shift brake · P2 arrows, Enter push, . pass, , bounce, / hype, Right Shift brake. Or one gamepad each.
@@ -517,7 +517,7 @@ export class Ui {
         <h3>Hype</h3>Big hits, steals, interceptions and goals fill your 🔥 meter. When it's full, hit HYPE for 6 seconds of extra speed and hits that always knock the ball loose. Score 3 in a row and your team is ON FIRE until the other team scores.
         <h3>Scoring</h3>Carry the ball over the opponents' goal line between the orange cones.
         <h3>Rules</h3>
-        • Bounce or pass within <b>10 s</b>. • Cross half way within <b>12 s</b>. • Score within <b>40 s</b>.<br>
+        • Bounce or pass within <b>8 s</b>. • Inbounds: pass in from the side line within <b>8 s</b>. • Cross half way within <b>12 s</b>, and never go (or pass) back over it. • Score within <b>40 s</b>. • To score, both wheels must cross the line: once you're on it, go all the way.<br>
         • Attackers: max <b>10 s</b> in the opponents' key. • Defenders: max <b>3</b> in their own key.<br>
         • Hitting a chair <b>behind its rear axle</b> (spinning) is a foul: attackers lose the ball, defenders go to the penalty box.<br>
         • Every player has a classification from 0.5 to 3.5. Your four on court may total <b>8.0</b> (+0.5 per female player).

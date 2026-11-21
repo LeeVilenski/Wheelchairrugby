@@ -25,8 +25,8 @@ export const TRAINING_RULES = { ...RULES.Arcade, name: 'Arcade' as const, dribbl
   attackerKeyLimit: OFF, spinFoulSpeed: OFF, handsFouls: false, tipping: false, periodSeconds: 99999 };
 
 /** Keep only the listed chairs; position them. */
-function only(m: Match, keep: { team: number; idx: number; x: number; y: number; frozen?: boolean }[]) {
-  const picked = keep.map(k => { const c = m.lineup(k.team)[k.idx]; Object.assign(c, { x: k.x, y: k.y, vx: 0, vy: 0, frozen: !!k.frozen }); return c; });
+function only(m: Match, keep: { team: number; idx: number; x: number; y: number; frozen?: boolean; heading?: number }[]) {
+  const picked = keep.map(k => { const c = m.lineup(k.team)[k.idx]; Object.assign(c, { x: k.x, y: k.y, vx: 0, vy: 0, frozen: !!k.frozen }); if (k.heading !== undefined) c.heading = k.heading; return c; });
   m.chairs = picked;
   m.chairs.forEach(c => { c.heading = c.team === 0 ? 0 : Math.PI; });
   m.state = { kind: 'play' };
@@ -68,16 +68,16 @@ export const DRILLS: Drill[] = [
   (() => {
     let held = 0, bounces = 0;
     return {
-      id: 'bounce', title: '3. The 10-second dribble',
-      text: { keys: 'You must bounce (Q) or pass within 10 seconds of getting the ball. Keep the ball for 25 seconds, bouncing at least twice.',
-        touch: 'You must BOUNCE or pass within 10 seconds of getting the ball. Keep it for 25 seconds, bouncing at least twice.' },
+      id: 'bounce', title: '3. The 8-second dribble',
+      text: { keys: 'You must bounce (Q) or pass within 8 seconds of getting the ball. Keep the ball for 25 seconds, bouncing at least twice.',
+        touch: 'You must BOUNCE or pass within 8 seconds of getting the ball. Keep it for 25 seconds, bouncing at least twice.' },
       setup(m: Match) { held = 0; bounces = 0; only(m, [{ team: 0, idx: 0, x: 8, y: W / 2 }]); m.give(m.human); },
       check(m: Match, dt: number) {
         const h = m.human;
         if (m.ball.holder !== h) { m.give(h); }
         if (m.ball.bounceAnim > 0.38) bounces++;
         held += dt;
-        if (h.holdTime > 10) return 'fail:Too slow! The referee calls a 10-second violation. Bounce before the ring runs out.';
+        if (h.holdTime > 8) return 'fail:Too slow! The referee calls an 8-second violation. Bounce before the ring runs out.';
         return held >= 25 && bounces >= 2 ? 'done' : `Time: ${held.toFixed(0)} / 25 s · Bounces: ${bounces}${h.holdTime > 7 ? ' · BOUNCE NOW!' : ''}`;
       },
     };
@@ -130,7 +130,8 @@ export const DRILLS: Drill[] = [
     text: { keys: 'Now you defend. Win the ball: drive into the carrier from the side or front to knock it loose, or intercept a pass. Use E to switch to the nearest teammate.',
       touch: 'Now you defend. Win the ball: hit the carrier from the side or front to knock it loose, or intercept a pass.' },
     setup(m: Match) {
-      only(m, [{ team: 0, idx: 0, x: 22, y: W / 2 }, { team: 1, idx: 0, x: 8, y: W / 2 }, { team: 1, idx: 1, x: 6, y: 3 }]);
+      // Defender starts goal-side (team 1 attacks toward x = 0), facing the oncoming carrier.
+      only(m, [{ team: 0, idx: 0, x: 7, y: W / 2, heading: 0 }, { team: 1, idx: 0, x: 22, y: W / 2, heading: Math.PI }, { team: 1, idx: 1, x: 24, y: 3, heading: Math.PI }]);
       m.score = [0, 0]; m.skill = [0.6, 0.3]; m.speedMul = [1, 0.8];
       m.rules = { ...m.rules, handsFouls: false };
       m.give(m.lineup(1)[0]);
