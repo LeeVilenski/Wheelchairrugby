@@ -25,8 +25,8 @@ export const TRAINING_RULES = { ...RULES.Arcade, name: 'Arcade' as const, dribbl
   attackerKeyLimit: OFF, spinFoulSpeed: OFF, handsFouls: false, tipping: false, periodSeconds: 99999 };
 
 /** Keep only the listed chairs; position them. */
-function only(m: Match, keep: { team: number; idx: number; x: number; y: number; frozen?: boolean }[]) {
-  const picked = keep.map(k => { const c = m.lineup(k.team)[k.idx]; Object.assign(c, { x: k.x, y: k.y, vx: 0, vy: 0, frozen: !!k.frozen }); return c; });
+function only(m: Match, keep: { team: number; idx: number; x: number; y: number; frozen?: boolean; heading?: number }[]) {
+  const picked = keep.map(k => { const c = m.lineup(k.team)[k.idx]; Object.assign(c, { x: k.x, y: k.y, vx: 0, vy: 0, frozen: !!k.frozen }); if (k.heading !== undefined) c.heading = k.heading; return c; });
   m.chairs = picked;
   m.chairs.forEach(c => { c.heading = c.team === 0 ? 0 : Math.PI; });
   m.state = { kind: 'play' };
@@ -130,7 +130,8 @@ export const DRILLS: Drill[] = [
     text: { keys: 'Now you defend. Win the ball: drive into the carrier from the side or front to knock it loose, or intercept a pass. Use E to switch to the nearest teammate.',
       touch: 'Now you defend. Win the ball: hit the carrier from the side or front to knock it loose, or intercept a pass.' },
     setup(m: Match) {
-      only(m, [{ team: 0, idx: 0, x: 22, y: W / 2 }, { team: 1, idx: 0, x: 8, y: W / 2 }, { team: 1, idx: 1, x: 6, y: 3 }]);
+      // Defender starts goal-side (team 1 attacks toward x = 0), facing the oncoming carrier.
+      only(m, [{ team: 0, idx: 0, x: 7, y: W / 2, heading: 0 }, { team: 1, idx: 0, x: 22, y: W / 2, heading: Math.PI }, { team: 1, idx: 1, x: 24, y: 3, heading: Math.PI }]);
       m.score = [0, 0]; m.skill = [0.6, 0.3]; m.speedMul = [1, 0.8];
       m.rules = { ...m.rules, handsFouls: false };
       m.give(m.lineup(1)[0]);
