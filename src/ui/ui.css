@@ -54,3 +54,8 @@ tr:nth-child(even) td { background: rgba(255,255,255,.04); }
   padding: 8px 10px; background: #1a2030; border-radius: 10px; }
 .prow input:not([type=checkbox]), .prow select { width: 100%; box-sizing: border-box; }
 @media (max-width: 640px) { .prow { grid-template-columns: 56px 1fr 68px 40px; } .prow select[data-f$=focus] { grid-column: 2 / 3; } }
+
+.role { display: inline-block; font-size: 0.72em; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 6px; vertical-align: middle; white-space: nowrap; }
+.role.def { background: #1e3a8a; color: #bfdbfe; }
+.role.att { background: #9a3412; color: #fed7aa; }
+.pcard .role { display: table; margin: 4px 0 2px; }
