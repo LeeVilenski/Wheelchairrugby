@@ -18,6 +18,7 @@ export class Chair {
   inOwnKey = false;
   penalty = 0;           // seconds left in the penalty box; > 0 = off court
   boost = 0;
+  hooked = 0;            // seconds left caught on a defensive chair's pick (slowed)
   speedMul = 1;
   tipped = 0;            // seconds left lying on its side after a huge hit
   pinTime = 0;           // seconds a defender has been stuck to this carrier          // difficulty handicap for CPU teams
@@ -106,7 +107,8 @@ export class Chair {
     this.vx *= k; this.vy *= k;
 
     const s = this.speed;
-    const max = this.maxSpeed * this.speedMul * (holding ? 0.95 : 1) * (this.pushCooldown > 0 ? 1.25 : 1) * (1 + this.boost * 0.3);
+    if (this.hooked > 0) this.hooked -= dt;
+    const max = (this.hooked > 0 ? 0.5 : 1) * this.maxSpeed * this.speedMul * (holding ? 0.95 : 1) * (this.pushCooldown > 0 ? 1.25 : 1) * (1 + this.boost * 0.3);
     if (s > max) { this.vx *= max / s; this.vy *= max / s; }
 
     this.x += this.vx * dt;
@@ -150,13 +152,37 @@ export class Chair {
     }
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.beginPath(); ctx.ellipse(0.06, 0.08, r * 1.05, r * 0.95, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#222';
-    ctx.fillRect(-r * 0.7, -r * 1.05, r * 1.2, r * 0.28);
-    ctx.fillRect(-r * 0.7, r * 0.77, r * 1.2, r * 0.28);
-    // Defensive chairs get a wide bumper with wings, offensive chairs a compact rounded one.
-    ctx.strokeStyle = this.teamDef.secondary;
-    ctx.lineWidth = this.isDefensive ? 0.14 : 0.09;
-    ctx.beginPath(); ctx.arc(r * 0.15, 0, r * 0.85, this.isDefensive ? -1.4 : -1.0, this.isDefensive ? 1.4 : 1.0); ctx.stroke();
+    // Big cambered wheels: black discs with a red tyre edge.
+    for (const sy of [-1, 1]) {
+      ctx.fillStyle = '#9b1c2c'; ctx.beginPath(); ctx.roundRect(-r * 0.78, sy * r * 0.92 - r * 0.17, r * 1.36, r * 0.34, r * 0.17); ctx.fill();
+      ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.roundRect(-r * 0.72, sy * r * 0.92 - r * 0.12, r * 1.24, r * 0.24, r * 0.12); ctx.fill();
+    }
+    const metal = '#c9ced6';
+    ctx.strokeStyle = metal; ctx.fillStyle = metal; ctx.lineJoin = 'round';
+    if (this.isDefensive) {
+      // Defensive chair: long open frame with a protruding pick/cage at the front for hooking other chairs.
+      ctx.lineWidth = 0.07;
+      ctx.beginPath(); ctx.moveTo(r * 0.35, -r * 0.55); ctx.lineTo(r * 1.0, -r * 0.6); ctx.lineTo(r * 1.0, r * 0.6); ctx.lineTo(r * 0.35, r * 0.55); ctx.stroke();
+      ctx.lineWidth = 0.05;
+      ctx.strokeRect(r * 1.0, -r * 0.45, r * 0.55, r * 0.9);
+      ctx.beginPath();
+      for (const x of [1.18, 1.36]) { ctx.moveTo(r * x, -r * 0.45); ctx.lineTo(r * x, r * 0.45); }
+      ctx.moveTo(r * 1.0, -r * 0.45); ctx.lineTo(r * 1.55, r * 0.45); ctx.moveTo(r * 1.0, r * 0.45); ctx.lineTo(r * 1.55, -r * 0.45);
+      ctx.stroke();
+      ctx.lineWidth = 0.11; ctx.strokeStyle = this.teamDef.secondary;
+      ctx.beginPath(); ctx.moveTo(r * 1.58, -r * 0.5); ctx.lineTo(r * 1.58, r * 0.5); ctx.stroke();
+    } else {
+      // Attacking chair: short, rounded nose with wings wrapping the front of the wheels so it can't be hooked.
+      ctx.lineWidth = 0.12;
+      ctx.beginPath();
+      ctx.moveTo(r * 0.1, -r * 1.12);
+      ctx.quadraticCurveTo(r * 0.95, -r * 1.15, r * 0.98, -r * 0.35);
+      ctx.lineTo(r * 0.98, r * 0.35);
+      ctx.quadraticCurveTo(r * 0.95, r * 1.15, r * 0.1, r * 1.12);
+      ctx.stroke();
+      ctx.lineWidth = 0.06; ctx.strokeStyle = this.teamDef.secondary;
+      ctx.beginPath(); ctx.moveTo(r * 0.98, -r * 0.3); ctx.lineTo(r * 0.98, r * 0.3); ctx.stroke();
+    }
     // Seat / shirt with the team's kit pattern
     ctx.save();
     ctx.beginPath(); ctx.roundRect(-r * 0.6, -r * 0.6, r * 1.0, r * 1.2, 0.12);
