@@ -176,7 +176,7 @@ export class Match {
 
   give(c: Chair) {
     this.ball.holder = c;
-    this.ball.passedBy = null;
+    this.ball.lastTouch = c;
     this.inbound = null;
     c.holdTime = 0; c.goalCommit = false;
     if (c.team !== this.possTeam) this.newPossession(c.team);
@@ -389,7 +389,7 @@ export class Match {
     ball.holder = null;
     ball.vx = (tx - ball.x) / t; ball.vy = (ty - ball.y) / t;
     ball.z = 1; ball.vz = 9.8 * t / 2 - 0.3 / t;
-    ball.lockChair = from; ball.lockTime = 0.35; ball.passedBy = from;
+    ball.lockChair = from; ball.lockTime = 0.35; ball.lastTouch = from;
     if (this.inbound?.chair === from) this.inbound = null;
     from.holdTime = 0;
   }
@@ -519,7 +519,7 @@ export class Match {
       this.onShake(0.5); this.sfx('hit', 9);
       if (ball.holder === victim) {
         ball.holder = null; ball.vx = victim.vx + (Math.random() - 0.5) * 3; ball.vy = victim.vy + (Math.random() - 0.5) * 3;
-        ball.vz = 2; ball.lockChair = victim; ball.lockTime = 0.6;
+        ball.vz = 2; ball.lockChair = victim; ball.lockTime = 0.6; ball.lastTouch = hitter;
       }
     }
     if (big && this.fx.texts.length < 2) this.fx.text(h.x, h.y - 1, pick(['SMASH!', 'BOOM!', 'WRECKED!', 'CRUNCH!']), '#ffe14d', 0.9);
@@ -540,7 +540,7 @@ export class Match {
         ball.holder = null;
         const a = Math.atan2(carrier.y - def.y, carrier.x - def.x) + (Math.random() - 0.5);
         ball.vx = carrier.vx * 0.5 + Math.cos(a) * 3; ball.vy = carrier.vy * 0.5 + Math.sin(a) * 3;
-        ball.vz = 2; ball.lockChair = carrier; ball.lockTime = 0.4;
+        ball.vz = 2; ball.lockChair = carrier; ball.lockTime = 0.4; ball.lastTouch = def;
         this.fx.text(carrier.x, carrier.y - 1.4, 'STRIPPED!', '#7dd3fc', 0.6);
         return false;
       }
@@ -550,7 +550,7 @@ export class Match {
       ball.holder = null;
       ball.vx = carrier.vx + s * h.nx * 3 + (Math.random() - 0.5) * 2;
       ball.vy = carrier.vy + s * h.ny * 3 + (Math.random() - 0.5) * 2;
-      ball.vz = 2.5; ball.lockChair = carrier; ball.lockTime = 0.5;
+      ball.vz = 2.5; ball.lockChair = carrier; ball.lockTime = 0.5; ball.lastTouch = hitter; // knocked loose by the defender
       this.fx.text(carrier.x, carrier.y - 1.4, 'LOOSE BALL!', '#fff', 0.6);
     }
     return false;
@@ -581,6 +581,16 @@ export class Match {
     }
     if (best) {
       const flying = Math.hypot(ball.vx, ball.vy) > 6;
+      // A hard pass at an opponent is often only got a hand to: deflected, not caught.
+      if (flying && ball.lastTouch && ball.lastTouch.team !== best.team && Math.random() < 0.35) {
+        const a = Math.atan2(ball.vy, ball.vx) + Math.PI * (0.6 + Math.random() * 0.8);
+        const sp = Math.hypot(ball.vx, ball.vy) * 0.35;
+        ball.vx = Math.cos(a) * sp; ball.vy = Math.sin(a) * sp; ball.vz = Math.max(ball.vz, 2);
+        ball.lockChair = best; ball.lockTime = 0.3; ball.lastTouch = best;
+        this.fx.text(best.x, best.y - 1.2, 'TIPPED!', '#7dd3fc', 0.6);
+        this.sfx('catch', 0.5);
+        return;
+      }
       const lastTeam = ball.lockChair?.team;
       const steal = this.possTeam >= 0 && this.possTeam !== best.team;
       if (steal) { this.stat(best.def).steals++; this.addHype(best.team, 0.04); }
@@ -616,7 +626,7 @@ export class Match {
       } else if (!h) {
         const dx = (ball.x - mid) * d;
         if (!this.crossedHalf && dx > 0 && ball.z < 0.5) this.crossedHalf = true;
-        if (this.crossedHalf && dx < 0 && ball.passedBy?.team === pt) return back('ball passed back');
+        if (this.crossedHalf && dx < 0 && ball.lastTouch?.team === pt) return back('ball passed back');
       }
       if (this.shotClock <= 0) return this.turnover(1 - pt, '40-second violation', ball.x, ball.y);
       if (!this.crossedHalf && this.backcourtClock <= 0) return this.turnover(1 - pt, '12-second violation', ball.x, ball.y);
