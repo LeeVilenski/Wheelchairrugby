@@ -9,9 +9,21 @@ export class Audio {
   private crowdLevel = 0.12;
   muted = false;
 
+  constructor() {
+    // Silence everything when the tab/app is hidden (e.g. minimised on mobile).
+    const onVis = () => {
+      if (!this.ctx) return;
+      if (document.hidden) { this.ctx.suspend(); window.speechSynthesis?.cancel(); }
+      else this.ctx.resume();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('pagehide', () => { this.ctx?.suspend(); window.speechSynthesis?.cancel(); });
+    window.addEventListener('pageshow', onVis);
+  }
+
   /** Browsers only allow audio after a user gesture. */
   unlock() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    if (this.ctx) { if (this.ctx.state === 'suspended' && !document.hidden) this.ctx.resume(); return; }
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
     const ctx = this.ctx = new AC();
@@ -94,7 +106,7 @@ export class Announcer {
   private last = -Infinity;
   say(text: string) {
     const synth = window.speechSynthesis;
-    if (!this.enabled || !synth || performance.now() - this.last < 1200) return;
+    if (!this.enabled || !synth || document.hidden || performance.now() - this.last < 1200) return;
     this.last = performance.now();
     const line = text.toLowerCase();
     synth.cancel();
