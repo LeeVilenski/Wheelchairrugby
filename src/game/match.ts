@@ -502,6 +502,16 @@ export class Match {
       return true;
     }
 
+    // Picks: a defensive chair meeting an opponent with its front cage hooks them and slows them down.
+    for (const [d, o] of [[h.a, h.b], [h.b, h.a]] as const) {
+      if (!d.isDefensive || o.isDefensive || o.hooked > 0) continue;
+      const fx = Math.cos(d.heading) * (o.x - d.x) + Math.sin(d.heading) * (o.y - d.y);
+      if (fx / Math.hypot(o.x - d.x, o.y - d.y) > 0.6) {
+        o.hooked = 0.9;
+        if (this.fx.texts.length < 2) this.fx.text(o.x, o.y - 1.4, 'PICKED!', '#c9ced6', 0.6);
+      }
+    }
+
     if (big) {
       this.stat(hitter.def).hits++;
       this.addHype(hitter.team, 0.025);

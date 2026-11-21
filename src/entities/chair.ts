@@ -19,6 +19,7 @@ export class Chair {
   inOwnKey = false;
   penalty = 0;           // seconds left in the penalty box; > 0 = off court
   boost = 0;
+  hooked = 0;            // seconds left caught on a defensive chair's pick (slowed)
   speedMul = 1;
   tipped = 0;            // seconds left lying on its side after a huge hit
   pinTime = 0;           // seconds a defender has been stuck to this carrier          // difficulty handicap for CPU teams
@@ -48,10 +49,10 @@ export class Chair {
     this.cls = c;
     this.radius = 0.62 - c * 0.025;
     this.mass = 1.35 - c * 0.1 + d('hit') * 0.06;
-    this.maxSpeed = 5.8 + c * 0.45 + d('spd') * 0.25;
-    this.cruiseAccel = 3.8 + c * 0.4 + d('acc') * 0.22;
+    this.maxSpeed = 4.9 + c * 0.38 + d('spd') * 0.22;
+    this.cruiseAccel = 3.2 + c * 0.34 + d('acc') * 0.19;
     this.turnRate = 3.4 + c * 0.35 + d('trn') * 0.22;
-    this.pushImpulse = 2.1 + c * 0.2 + d('acc') * 0.08 + d('hit') * 0.06;
+    this.pushImpulse = 1.8 + c * 0.17 + d('acc') * 0.08 + d('hit') * 0.06;
     this.catchRadius = 0.7 + c * 0.07 + d('hnd') * 0.06;
     this.staminaUse = Math.max(0.5, 1 - d('sta') * 0.12);
   }
@@ -107,7 +108,8 @@ export class Chair {
     this.vx *= k; this.vy *= k;
 
     const s = this.speed;
-    const max = this.maxSpeed * this.speedMul * (holding ? 0.95 : 1) * (this.pushCooldown > 0 ? 1.25 : 1) * (1 + this.boost * 0.3);
+    if (this.hooked > 0) this.hooked -= dt;
+    const max = (this.hooked > 0 ? 0.5 : 1) * this.maxSpeed * this.speedMul * (holding ? 0.95 : 1) * (this.pushCooldown > 0 ? 1.25 : 1) * (1 + this.boost * 0.3);
     if (s > max) { this.vx *= max / s; this.vy *= max / s; }
 
     this.x += this.vx * dt;
@@ -129,6 +131,17 @@ export class Chair {
 
   draw(ctx: CanvasRenderingContext2D) {
     const r = this.radius;
+    if (this.human) {
+      // Pulsing ground ring under the player-controlled chair so it stands out in a crowd.
+      const col = this.player === 2 ? '#22d3ee' : '#ffe14d';
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+      ctx.save();
+      ctx.globalAlpha = 0.28 + pulse * 0.15; ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(this.x, this.y, r * 1.55, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.95; ctx.strokeStyle = col; ctx.lineWidth = 0.09;
+      ctx.beginPath(); ctx.arc(this.x, this.y, r * (1.45 + pulse * 0.15), 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.heading);
@@ -140,13 +153,37 @@ export class Chair {
     }
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.beginPath(); ctx.ellipse(0.06, 0.08, r * 1.05, r * 0.95, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#222';
-    ctx.fillRect(-r * 0.7, -r * 1.05, r * 1.2, r * 0.28);
-    ctx.fillRect(-r * 0.7, r * 0.77, r * 1.2, r * 0.28);
-    // Defensive chairs get a wide bumper with wings, offensive chairs a compact rounded one.
-    ctx.strokeStyle = this.teamDef.secondary;
-    ctx.lineWidth = this.isDefensive ? 0.14 : 0.09;
-    ctx.beginPath(); ctx.arc(r * 0.15, 0, r * 0.85, this.isDefensive ? -1.4 : -1.0, this.isDefensive ? 1.4 : 1.0); ctx.stroke();
+    // Big cambered wheels: black discs with a red tyre edge.
+    for (const sy of [-1, 1]) {
+      ctx.fillStyle = '#9b1c2c'; ctx.beginPath(); ctx.roundRect(-r * 0.78, sy * r * 0.92 - r * 0.17, r * 1.36, r * 0.34, r * 0.17); ctx.fill();
+      ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.roundRect(-r * 0.72, sy * r * 0.92 - r * 0.12, r * 1.24, r * 0.24, r * 0.12); ctx.fill();
+    }
+    const metal = '#c9ced6';
+    ctx.strokeStyle = metal; ctx.fillStyle = metal; ctx.lineJoin = 'round';
+    if (this.isDefensive) {
+      // Defensive chair: long open frame with a protruding pick/cage at the front for hooking other chairs.
+      ctx.lineWidth = 0.07;
+      ctx.beginPath(); ctx.moveTo(r * 0.35, -r * 0.55); ctx.lineTo(r * 1.0, -r * 0.6); ctx.lineTo(r * 1.0, r * 0.6); ctx.lineTo(r * 0.35, r * 0.55); ctx.stroke();
+      ctx.lineWidth = 0.05;
+      ctx.strokeRect(r * 1.0, -r * 0.45, r * 0.55, r * 0.9);
+      ctx.beginPath();
+      for (const x of [1.18, 1.36]) { ctx.moveTo(r * x, -r * 0.45); ctx.lineTo(r * x, r * 0.45); }
+      ctx.moveTo(r * 1.0, -r * 0.45); ctx.lineTo(r * 1.55, r * 0.45); ctx.moveTo(r * 1.0, r * 0.45); ctx.lineTo(r * 1.55, -r * 0.45);
+      ctx.stroke();
+      ctx.lineWidth = 0.11; ctx.strokeStyle = this.teamDef.secondary;
+      ctx.beginPath(); ctx.moveTo(r * 1.58, -r * 0.5); ctx.lineTo(r * 1.58, r * 0.5); ctx.stroke();
+    } else {
+      // Attacking chair: short, rounded nose with wings wrapping the front of the wheels so it can't be hooked.
+      ctx.lineWidth = 0.12;
+      ctx.beginPath();
+      ctx.moveTo(r * 0.1, -r * 1.12);
+      ctx.quadraticCurveTo(r * 0.95, -r * 1.15, r * 0.98, -r * 0.35);
+      ctx.lineTo(r * 0.98, r * 0.35);
+      ctx.quadraticCurveTo(r * 0.95, r * 1.15, r * 0.1, r * 1.12);
+      ctx.stroke();
+      ctx.lineWidth = 0.06; ctx.strokeStyle = this.teamDef.secondary;
+      ctx.beginPath(); ctx.moveTo(r * 0.98, -r * 0.3); ctx.lineTo(r * 0.98, r * 0.3); ctx.stroke();
+    }
     // Seat / shirt with the team's kit pattern
     ctx.save();
     ctx.beginPath(); ctx.roundRect(-r * 0.6, -r * 0.6, r * 1.0, r * 1.2, 0.12);
@@ -179,13 +216,13 @@ export class Chair {
     ctx.fillText(String(this.def.number), this.x, this.y - r - 0.35);
     if (this.tag) {
       ctx.fillStyle = this.player === 2 ? '#22d3ee' : '#fff'; ctx.font = '900 0.38px system-ui';
-      ctx.fillText(this.tag, this.x, this.y - r - 1.2);
+      ctx.fillText(this.tag, this.x, this.y - r - 1.4);
     }
     if (this.human) {
       // "You" marker: bobbing arrow above the number
       const ty = this.y - r - 0.75 + Math.sin(performance.now() / 150) * 0.08;
-      ctx.fillStyle = this.player === 2 ? '#22d3ee' : '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 0.05;
-      ctx.beginPath(); ctx.moveTo(this.x - 0.28, ty - 0.3); ctx.lineTo(this.x + 0.28, ty - 0.3); ctx.lineTo(this.x, ty); ctx.closePath();
+      ctx.fillStyle = this.player === 2 ? '#22d3ee' : '#ffe14d'; ctx.strokeStyle = '#000'; ctx.lineWidth = 0.06;
+      ctx.beginPath(); ctx.moveTo(this.x - 0.4, ty - 0.45); ctx.lineTo(this.x + 0.4, ty - 0.45); ctx.lineTo(this.x, ty); ctx.closePath();
       ctx.fill(); ctx.stroke();
     }
   }
