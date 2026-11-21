@@ -45,6 +45,10 @@ export interface UiHooks {
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const pts = (n: number) => n.toFixed(1);
+/** Defensive (low-point, pick chair) vs attacking (high-point, winged chair) badge. Matches Chair.isDefensive. */
+const role = (cls: number) => cls <= 1.5
+  ? '<span class="role def" title="Defensive chair: front pick to hook and slow attackers">🛡 DEF</span>'
+  : '<span class="role att" title="Attacking chair: fast ball carrier">⚡ ATT</span>';
 
 /** DOM menus layered over the canvas. */
 export class Ui {
@@ -127,7 +131,7 @@ export class Ui {
     if (this.away >= T.length || this.away === this.home) this.away = (this.home + 1) % T.length;
     const card = (i: number, who: string, side: string) => {
       const t = T[i];
-      const rows = t.players.map(p => `<span class="cls">${pts(p.cls)}</span><span>#${p.number} ${esc(p.name)}${p.female ? ' ♀' : ''}</span><span></span>`).join('');
+      const rows = t.players.map(p => `<span class="cls">${pts(p.cls)}</span><span>${role(p.cls)} #${p.number} ${esc(p.name)}${p.female ? ' ♀' : ''}</span><span></span>`).join('');
       return `<div class="team-card" style="--c:${t.primary}">
         <div class="who">${who}</div>
         <div class="row"><button class="chip" data-a="prev" data-v="${side}">◀</button>
@@ -186,7 +190,7 @@ export class Ui {
     const squad = T[0].players.map(p => {
       const xp = p.xp ?? 0, lvl = Math.floor(xp / XP_PER_LEVEL) + 1, frac = (xp % XP_PER_LEVEL) / XP_PER_LEVEL;
       const bonus = Object.entries(p.bonus ?? {}).filter(([, v]) => v).map(([k, v]) => `${STAT_LABELS[k as keyof Stats]} +${v}`).join(', ');
-      return `<div class="pcard" style="cursor:default"><span class="num">#${p.number}</span> ${esc(p.name)} <span class="cls">${pts(p.cls)}</span>
+      return `<div class="pcard" style="cursor:default"><span class="num">#${p.number}</span> ${esc(p.name)} <span class="cls">${pts(p.cls)}</span> ${role(p.cls)}
         <br><small>Level ${lvl}${bonus ? ` · ${bonus}` : ''}</small><div class="bar"><i style="width:${Math.round(frac * 100)}%;background:#ffe14d"></i></div></div>`;
     }).join('');
     const rep = report.filter(r => r.xp > 0).map(r => `<div>#${r.number} ${esc(r.name)}: +${r.xp} XP${r.levels ? ` · <b style="color:#ffe14d">LEVEL UP${r.gained.length ? ': ' + r.gained.map(g => STAT_LABELS[g] + ' +1').join(', ') : ''}</b>` : ''}</div>`).join('');
@@ -432,7 +436,7 @@ export class Ui {
       <h2>#${p.number} ${esc(p.name)}</h2>
       <div class="row" style="align-items:center">
         <canvas id="pprev" width="120" height="120" style="width:120px;height:120px;border-radius:12px;background:#d9a066"></canvas>
-        <div class="tag">Class ${pts(p.cls)}${p.female ? ' · ♀' : ''}<br>Stat points: <b>${total} / ${STAT_BUDGET}</b><br>
+        <div class="tag">Class ${pts(p.cls)} ${role(p.cls)}${p.female ? ' · ♀' : ''}<br>Stat points: <b>${total} / ${STAT_BUDGET}</b><br>
           <span style="font-size:12px">Presets:</span> ${(Object.keys(FOCUS) as Focus[]).map(f => `<button class="chip" data-a="preset" data-v="${f}">${FOCUS[f].label}</button>`).join(' ')}</div>
       </div>
       ${statRows}
@@ -567,17 +571,18 @@ export class Ui {
     const defs = lineup.map(c => c.def), total = lineupPoints(defs), limit = lineupLimit(defs, m.fmt);
     const bar = (v: number) => `<div class="bar ${v < 0.35 ? 'low' : ''}"><i style="width:${Math.round(v * 100)}%"></i></div>`;
     const onCards = lineup.map((c, i) => `<button class="pcard ${c === out ? 'sel' : ''}" data-a="out" data-v="${i}" ${c.penalty > 0 ? 'disabled' : ''}>
-        <span class="num">#${c.def.number}</span> ${esc(c.def.name)}${c.def.female ? ' ♀' : ''} <span class="cls">${pts(c.cls)}</span>
+        <span class="num">#${c.def.number}</span> ${esc(c.def.name)}${c.def.female ? ' ♀' : ''} <span class="cls">${pts(c.cls)}</span> ${role(c.cls)}
         ${c.penalty > 0 ? '<br><small>In penalty box</small>' : ''}${bar(c.stamina)}</button>`).join('');
     const benchCards = bench.map((p, i) => {
       const waiting = m.waiting.has(p);
       const ok = !waiting && (!out || validLineup(defs.map(d => d === out.def ? p : d), m.fmt));
       return `<button class="pcard ${ok ? '' : 'bad'}" data-a="in" data-v="${i}" ${out && ok ? '' : 'disabled'}>
-        <span class="num">#${p.number}</span> ${esc(p.name)}${p.female ? ' ♀' : ''} <span class="cls">${pts(p.cls)}</span>${waiting ? '<br><small>Waiting to serve penalty</small>' : ''}${bar(m.stamina.get(p) ?? 1)}</button>`;
+        <span class="num">#${p.number}</span> ${esc(p.name)}${p.female ? ' ♀' : ''} <span class="cls">${pts(p.cls)}</span> ${role(p.cls)}${waiting ? '<br><small>Waiting to serve penalty</small>' : ''}${bar(m.stamina.get(p) ?? 1)}</button>`;
     }).join('');
     this.show(`
       <h2>Substitutions · ${esc(m.teams[team].short)}</h2>
       <div class="points ${total > limit ? 'bad' : ''}">On court: ${pts(total)} / ${pts(limit)} points</div>
+      <div class="tag">${role(0)} 0.5–1.5 point defenders &nbsp; ${role(2)} 2.0–3.5 point attackers</div>
       <div class="tag">${out ? `Pick who replaces #${out.def.number} ${esc(out.def.name)}` : 'Tap a player on court to take them off'}</div>
       <div class="lineup">${onCards}</div>
       <div class="tag">Bench</div>
