@@ -19,11 +19,16 @@ Top-down 2D browser game. Real IWRF rules, arcade feel, customisable teams.
 2. ✅ Ball: carry, pass, bounce, 10 s dribble, scoring, out of bounds, turnovers
 3. ✅ 4v4 + basic AI, mass-based collisions, hits, fumbles, player switching
 4. ✅ Referee: game/shot/12 s clocks, quarters + OT, key rules, spinning fouls, penalty box, Arcade/Sim presets
-5. HUD, menus, quarters, timeouts, subs
-6. Team editor + classification budget, save/load/share
-7. Arcade juice: Hype meter, effects, audio
-8. AI tactics, difficulty, tournament mode
-9. Polish, deploy
+5. ✅ Title/team-select/settings/help menus, pause, timeouts (4/team), 8-player rosters + subs with 8.0-point check, CPU auto-subs, full-time stats + MVP, attract-mode demo
+6. ✅ Team editor: name/short/colours with live preview, up to 12 players (number, class, focus, ♀), 8.0 check, saved on device, share/import codes
+7. ✅ Arcade juice: Hype meter + HYPE boost, ON FIRE streaks, chain blocks, hit-stop/slow-mo, flashes, tyre trails, flames, announcer callouts, synthesised sound + crowd
+8. ✅ Team AI: press/trap schemes, picks, goal-line flooding, give-and-go passing, ball strips; Easy/Normal/Hard; 4-team Cup (group + final, saved on device)
+9. ✅ Polish: auto-pause when hidden, screen wake lock, vibration, reduced-effects option, first-launch help hint, README
 
 ## Run
 `npm install && npm run dev`
+
+10. ✅ Fives format (GBWR CD-001 rules): 5v5, 10.0-point limit, 2 halves, running clock, 2 timeouts, penalty-box cap of 3
+11. ✅ Remaining plan items: Custom rules, holding / illegal-use-of-hands fouls, chairs tipping over, player stats (18-point budget) and looks,
+    kit patterns and badges, 8 presets, 8-team cup with semis, announcer voice, 2-player local (versus / co-op), 8 training drills,
+    season mode with XP and levelling

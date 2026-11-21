@@ -6,9 +6,10 @@ export interface Controls {
   brake: boolean;
   pass: boolean;         // pass, or switch player when not holding the ball
   bounce: boolean;
+  hype: boolean;
 }
 
-export const IDLE: Controls = { turn: 0, throttle: 0, aim: null, push: false, brake: false, pass: false, bounce: false };
+export const IDLE: Controls = { turn: 0, throttle: 0, aim: null, push: false, brake: false, pass: false, bounce: false, hype: false };
 
 interface Button { id: string; label: string; x: number; y: number; r: number; held: boolean; pointer: number | null; }
 
@@ -25,6 +26,7 @@ export class Input {
     { id: 'brake', label: 'BRAKE', x: 0, y: 0, r: 36, held: false, pointer: null },
     { id: 'pass', label: 'PASS', x: 0, y: 0, r: 40, held: false, pointer: null },
     { id: 'bounce', label: 'BOUNCE', x: 0, y: 0, r: 32, held: false, pointer: null },
+    { id: 'hype', label: 'HYPE', x: 0, y: 0, r: 30, held: false, pointer: null },
   ];
   /** Screen-space tap targets owned by the UI (e.g. camera toggle). */
   tapTargets: { x: number; y: number; w: number; h: number; onTap: () => void }[] = [];
@@ -34,7 +36,7 @@ export class Input {
       if (!this.keys.has(e.code)) this.pressed.add(e.code);
       this.keys.add(e.code);
       this.touchMode = false;
-      if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+      if (e.code.startsWith('Arrow') || e.code === 'Space' || e.code === 'Slash' || e.code === 'Enter') e.preventDefault();
     });
     addEventListener('keyup', e => this.keys.delete(e.code));
     canvas.addEventListener('pointerdown', e => this.onDown(e));
@@ -45,7 +47,8 @@ export class Input {
 
   layout(w: number, h: number) {
     const s = Math.min(1.2, Math.max(0.8, Math.min(w, h) / 420));
-    const [push, brake, pass, bounce] = this.buttons;
+    const [push, brake, pass, bounce, hype] = this.buttons;
+    hype.r = 30 * s; hype.x = w - 165 * s; hype.y = h - 235 * s;
     push.r = 46 * s; brake.r = 34 * s; pass.r = 40 * s; bounce.r = 32 * s;
     push.x = w - 80 * s; push.y = h - 85 * s;
     brake.x = w - 185 * s; brake.y = h - 62 * s;
@@ -86,46 +89,78 @@ export class Input {
   wasPressed(code: string) { return this.pressed.has(code); }
   endFrame() { this.pressed.clear(); }
 
-  read(): Controls {
-    const k = (...c: string[]) => c.some(x => this.keys.has(x));
-    const c: Controls = {
-      turn: (k('ArrowRight', 'KeyD') ? 1 : 0) - (k('ArrowLeft', 'KeyA') ? 1 : 0),
-      throttle: (k('ArrowUp', 'KeyW') ? 1 : 0) - (k('ArrowDown', 'KeyS') ? 1 : 0),
-      aim: null,
-      push: this.wasPressed('Space'),
-      brake: k('ShiftLeft', 'ShiftRight'),
-      pass: this.wasPressed('KeyE') || this.wasPressed('KeyJ'),
-      bounce: this.wasPressed('KeyQ') || this.wasPressed('KeyK'),
-    };
+  /** Per-pad snapshot for this step: held buttons and buttons newly pressed. */
+  private pads: { axes: readonly number[]; held: boolean[]; down: boolean[] }[] = [];
+  private padPrev = new Map<number, boolean[]>();
 
-    // Touch stick: aim + throttle by distance
-    if (this.stick.active) {
-      const dx = this.stick.x - this.stick.ox, dy = this.stick.y - this.stick.oy;
-      const mag = Math.min(1, Math.hypot(dx, dy) / this.stickRadius);
-      if (mag > 0.2) { c.aim = Math.atan2(dy, dx); c.throttle = mag; }
+  /** Poll gamepads once per step (edge detection for every pad). */
+  poll() {
+    this.pads = [];
+    for (const gp of navigator.getGamepads?.() ?? []) {
+      if (!gp) continue;
+      const held = gp.buttons.map(b => b.pressed || b.value > 0.3);
+      const prev = this.padPrev.get(gp.index) ?? [];
+      this.pads.push({ axes: gp.axes, held, down: held.map((h, i) => h && !prev[i]) });
+      this.padPrev.set(gp.index, held);
+      if (held[9] && !prev[9]) this.pressed.add('pad:start');
     }
-    if (this.wasPressed('btn:push')) c.push = true;
-    if (this.buttons[1].held) c.brake = true;
-    if (this.wasPressed('btn:pass')) c.pass = true;
-    if (this.wasPressed('btn:bounce')) c.bounce = true;
+  }
 
-    // Gamepad: left stick aim, A push, B/RT brake
-    const gp = navigator.getGamepads?.().find(g => g);
-    if (gp) {
-      const ax = gp.axes[0] ?? 0, ay = gp.axes[1] ?? 0, mag = Math.min(1, Math.hypot(ax, ay));
+  /**
+   * Controls for player `pi` (0 = P1, 1 = P2).
+   * One player: WASD/arrows, touch and the first gamepad all drive P1.
+   * Two players: P1 = WASD + Space/E/Q/F/Left Shift, P2 = arrows + Enter/./,/'/'/Right Shift (or numpad 0-4);
+   * with two pads each player gets one, with one pad it goes to P2.
+   */
+  read(pi = 0, two = false): Controls {
+    const k = (...c: string[]) => c.some(x => this.keys.has(x));
+    const p = (...c: string[]) => c.some(x => this.wasPressed(x));
+    let c: Controls;
+    if (!two) {
+      c = {
+        turn: (k('ArrowRight', 'KeyD') ? 1 : 0) - (k('ArrowLeft', 'KeyA') ? 1 : 0),
+        throttle: (k('ArrowUp', 'KeyW') ? 1 : 0) - (k('ArrowDown', 'KeyS') ? 1 : 0),
+        aim: null, push: p('Space'), brake: k('ShiftLeft', 'ShiftRight'),
+        pass: p('KeyE', 'KeyJ'), bounce: p('KeyQ', 'KeyK'), hype: p('KeyF', 'KeyL'),
+      };
+    } else if (pi === 0) {
+      c = { turn: (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0), throttle: (k('KeyW') ? 1 : 0) - (k('KeyS') ? 1 : 0),
+        aim: null, push: p('Space'), brake: k('ShiftLeft'), pass: p('KeyE'), bounce: p('KeyQ'), hype: p('KeyF') };
+    } else {
+      c = { turn: (k('ArrowRight') ? 1 : 0) - (k('ArrowLeft') ? 1 : 0), throttle: (k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0),
+        aim: null, push: p('Enter', 'Numpad0'), brake: k('ShiftRight', 'Numpad3'), pass: p('Period', 'Numpad1'),
+        bounce: p('Comma', 'Numpad2'), hype: p('Slash', 'Numpad4') };
+    }
+
+    if (pi === 0) {
+      // Touch stick: aim + throttle by distance (player 1 only)
+      if (this.stick.active) {
+        const dx = this.stick.x - this.stick.ox, dy = this.stick.y - this.stick.oy;
+        const mag = Math.min(1, Math.hypot(dx, dy) / this.stickRadius);
+        if (mag > 0.2) { c.aim = Math.atan2(dy, dx); c.throttle = mag; }
+      }
+      if (this.wasPressed('btn:push')) c.push = true;
+      if (this.buttons[1].held) c.brake = true;
+      if (this.wasPressed('btn:pass')) c.pass = true;
+      if (this.wasPressed('btn:bounce')) c.bounce = true;
+      if (this.wasPressed('btn:hype')) c.hype = true;
+    }
+
+    // Gamepad: left stick aim, A push, X pass, Y bounce, RB hype, B/RT brake
+    const pad = !two ? this.pads[0] : this.pads.length >= 2 ? this.pads[pi] : pi === 1 ? this.pads[0] : undefined;
+    if (pad) {
+      const ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0, mag = Math.min(1, Math.hypot(ax, ay));
       if (mag > 0.25) { c.aim = Math.atan2(ay, ax); c.throttle = mag; }
-      const a = !!gp.buttons[0]?.pressed;
-      if (a && !this.gpA) c.push = true;
-      this.gpA = a;
-      const x = !!gp.buttons[2]?.pressed, y = !!gp.buttons[3]?.pressed;
-      if (x && !this.gpX) c.pass = true;
-      if (y && !this.gpY) c.bounce = true;
-      this.gpX = x; this.gpY = y;
-      if (gp.buttons[1]?.pressed || (gp.buttons[7]?.value ?? 0) > 0.3) c.brake = true;
+      if (pad.down[0]) c.push = true;
+      if (pad.down[2]) c.pass = true;
+      if (pad.down[3]) c.bounce = true;
+      if (pad.down[5]) c.hype = true;
+      if (pad.held[1] || pad.held[7]) c.brake = true;
     }
     return c;
   }
-  private gpA = false; private gpX = false; private gpY = false;
+  /** 0..1 hype charge, so the HYPE button can glow when ready. */
+  hypeLevel = 0;
 
   drawTouch(ctx: CanvasRenderingContext2D) {
     if (!this.touchMode) return;
@@ -148,6 +183,19 @@ export class Input {
       ctx.fillText('Touch & drag here to steer', 20, this.canvas.clientHeight - 30);
     }
     for (const b of this.buttons) {
+      if (b.id === 'hype') {
+        const ready = this.hypeLevel >= 1;
+        ctx.save();
+        ctx.globalAlpha = ready ? 0.75 + Math.sin(performance.now() / 120) * 0.25 : 0.5;
+        ctx.fillStyle = ready ? '#ff5a1f' : 'rgba(255,255,255,0.1)';
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#ffb02e'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * this.hypeLevel); ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = '#fff'; ctx.font = `900 ${Math.round(b.r * 0.4)}px system-ui`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🔥', b.x, b.y);
+        continue;
+      }
       ctx.fillStyle = b.held ? 'rgba(255,200,60,0.7)' : 'rgba(255,255,255,0.18)';
       ctx.strokeStyle = 'rgba(255,255,255,0.6)';
       ctx.lineWidth = 2;
