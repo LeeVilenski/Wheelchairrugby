@@ -47,10 +47,10 @@ export class Chair {
     this.cls = c;
     this.radius = 0.62 - c * 0.025;
     this.mass = 1.35 - c * 0.1 + d('hit') * 0.06;
-    this.maxSpeed = 5.8 + c * 0.45 + d('spd') * 0.25;
-    this.cruiseAccel = 3.8 + c * 0.4 + d('acc') * 0.22;
+    this.maxSpeed = 4.9 + c * 0.38 + d('spd') * 0.22;
+    this.cruiseAccel = 3.2 + c * 0.34 + d('acc') * 0.19;
     this.turnRate = 3.4 + c * 0.35 + d('trn') * 0.22;
-    this.pushImpulse = 2.1 + c * 0.2 + d('acc') * 0.08 + d('hit') * 0.06;
+    this.pushImpulse = 1.8 + c * 0.17 + d('acc') * 0.08 + d('hit') * 0.06;
     this.catchRadius = 0.7 + c * 0.07 + d('hnd') * 0.06;
     this.staminaUse = Math.max(0.5, 1 - d('sta') * 0.12);
   }
@@ -128,6 +128,17 @@ export class Chair {
 
   draw(ctx: CanvasRenderingContext2D) {
     const r = this.radius;
+    if (this.human) {
+      // Pulsing ground ring under the player-controlled chair so it stands out in a crowd.
+      const col = this.player === 2 ? '#22d3ee' : '#ffe14d';
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+      ctx.save();
+      ctx.globalAlpha = 0.28 + pulse * 0.15; ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(this.x, this.y, r * 1.55, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.95; ctx.strokeStyle = col; ctx.lineWidth = 0.09;
+      ctx.beginPath(); ctx.arc(this.x, this.y, r * (1.45 + pulse * 0.15), 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.heading);
@@ -178,13 +189,13 @@ export class Chair {
     ctx.fillText(String(this.def.number), this.x, this.y - r - 0.35);
     if (this.tag) {
       ctx.fillStyle = this.player === 2 ? '#22d3ee' : '#fff'; ctx.font = '900 0.38px system-ui';
-      ctx.fillText(this.tag, this.x, this.y - r - 1.2);
+      ctx.fillText(this.tag, this.x, this.y - r - 1.4);
     }
     if (this.human) {
       // "You" marker: bobbing arrow above the number
       const ty = this.y - r - 0.75 + Math.sin(performance.now() / 150) * 0.08;
-      ctx.fillStyle = this.player === 2 ? '#22d3ee' : '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 0.05;
-      ctx.beginPath(); ctx.moveTo(this.x - 0.28, ty - 0.3); ctx.lineTo(this.x + 0.28, ty - 0.3); ctx.lineTo(this.x, ty); ctx.closePath();
+      ctx.fillStyle = this.player === 2 ? '#22d3ee' : '#ffe14d'; ctx.strokeStyle = '#000'; ctx.lineWidth = 0.06;
+      ctx.beginPath(); ctx.moveTo(this.x - 0.4, ty - 0.45); ctx.lineTo(this.x + 0.4, ty - 0.45); ctx.lineTo(this.x, ty); ctx.closePath();
       ctx.fill(); ctx.stroke();
     }
   }
