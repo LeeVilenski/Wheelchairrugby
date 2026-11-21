@@ -34,6 +34,17 @@ function think(c: Chair, m: Match, skill: number): Controls {
 
   // ---------- Ball carrier ----------
   if (holder === c) {
+    if (m.inbound?.chair === c) {
+      // Inbound: hold still, pick an open teammate after a beat (well inside the 8 s).
+      const ctl: Controls = { turn: 0, throttle: 0, aim: null, push: false, brake: true, pass: false, bounce: false, hype: false };
+      const best = mates.slice().sort((a, b) => {
+        const sa = Math.min(4, dist(nearest(opps, a.x, a.y) ?? a, a.x, a.y)) - dist(a, c.x, c.y) / 6;
+        const sb = Math.min(4, dist(nearest(opps, b.x, b.y) ?? b, b.x, b.y)) - dist(b, c.x, c.y) / 6;
+        return sb - sa;
+      })[0];
+      if (best && (m.inbound.t < 7 - skill * 2 || m.inbound.t < 3)) { ctl.pass = true; ctl.aim = Math.atan2(best.y - c.y, best.x - c.x); }
+      return ctl;
+    }
     const pinned = Math.abs(c.x - og) < 2.5;
     const urgent = m.shotClock < 8 || (!m.crossedHalf && m.backcourtClock < 4);
     const ky = (W - COURT.keyWidth) / 2;
@@ -41,19 +52,20 @@ function think(c: Chair, m: Match, skill: number): Controls {
     const aimY = Math.max(ky + 1, Math.min(ky + COURT.keyWidth - 1, W / 2 + Math.sin(c.holdTime * 1.3 + c.def.number) * 2.5));
     const ctl = pinned
       ? steer(c, og + dir * 5, c.y < W / 2 ? 2 : W - 2, 0)
-      : steer(c, gx + dir * 0.6, aimY, 0, urgent);
+      : steer(c, gx + dir * (c.radius + 1), aimY, 0, urgent);
     const near = nearest(opps, c.x, c.y);
     const nearD = near ? dist(near, c.x, c.y) : 99;
     const toGoal = Math.abs(gx - c.x);
     const ahead = near && (near.x - c.x) * dir > -0.5;
 
-    if (c.holdTime > 6 + skill * 2.5 + Math.random()) { ctl.bounce = true; return ctl; }
+    if (c.holdTime > 4.5 + skill * 2 + Math.random()) { ctl.bounce = true; return ctl; }
 
     const threatened = nearD < 2.4 && ahead;
-    if ((threatened && toGoal > 2.5) || c.holdTime > 8.8) {
+    if ((threatened && toGoal > 2.5) || c.holdTime > 7) {
       // Score each teammate: open, closer to goal, and a clean passing lane.
       let best: Chair | null = null, bestScore = 0.5;
       for (const o of mates) {
+        if (m.crossedHalf && (o.x - COURT.length / 2) * dir < o.radius + 2.5) continue; // no passing back over half way
         const marker = nearest(opps, o.x, o.y), space = marker ? dist(marker, o.x, o.y) : 9;
         const gain = (Math.abs(gx - c.x) - Math.abs(gx - o.x)) / 6;
         const lane = laneClear(c, o, opps) ? 1 : -1.5;

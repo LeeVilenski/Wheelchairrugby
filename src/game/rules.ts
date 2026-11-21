@@ -36,9 +36,9 @@ function std(periodSeconds: number) {
 }
 
 export const RULES: Record<'Arcade' | 'Sim', RuleSet> = {
-  Arcade: { name: 'Arcade', ...std(180), overtimeSeconds: 60, dribbleLimit: 10, shotClock: 40,
+  Arcade: { name: 'Arcade', ...std(180), overtimeSeconds: 60, dribbleLimit: 8, shotClock: 40,
     backcourtLimit: 12, attackerKeyLimit: 10, maxDefendersInKey: 3, penaltySeconds: 30, spinFoulSpeed: 4.5, handsFouls: true, tipping: true },
-  Sim: { name: 'Sim', ...std(480), overtimeSeconds: 180, dribbleLimit: 10, shotClock: 40,
+  Sim: { name: 'Sim', ...std(480), overtimeSeconds: 180, dribbleLimit: 8, shotClock: 40,
     backcourtLimit: 12, attackerKeyLimit: 10, maxDefendersInKey: 3, penaltySeconds: 60, spinFoulSpeed: 3.2, handsFouls: true, tipping: false },
 };
 

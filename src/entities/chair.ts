@@ -13,6 +13,7 @@ export class Chair {
   player = 0;            // 0 = CPU, 1 = P1, 2 = P2
   tag = '';
   frozen = false;        // training: CPU chair that holds its position              // 'P1' / 'P2' label in two-player games
+  goalCommit = false;    // part of the chair is over the scoring line: must go all the way
   keyTime = 0;           // seconds spent in the opponents' key (attacking)
   keyEnteredAt = 0;      // when this chair entered its own key (defending)
   inOwnKey = false;

@@ -11,6 +11,7 @@ import { RULES, type RuleSet } from './rules';
 
 const PASS_SPEED = 13;
 const BRAKED: Controls = { ...IDLE, brake: true };
+export const INBOUND_LIMIT = 8;
 
 type State = { kind: 'play' } | { kind: 'dead'; timer: number; then: () => void; stopClock: boolean } | { kind: 'over' };
 
@@ -37,6 +38,8 @@ export class Match {
   shotClock = 0;
   backcourtClock = 0;
   crossedHalf = false;
+  /** Inbounding player stands out of bounds and must pass within 8 s. */
+  inbound: { chair: Chair; t: number } | null = null;
   fouls = [0, 0];
 
   timeouts = [4, 4];
@@ -148,12 +151,34 @@ export class Match {
       c.heading = dir > 0 ? Math.PI : 0; c.vx = c.vy = 0;
     });
     const taker = this.team(team)[0] ?? this.team(1 - team)[0];
-    if (taker) this.give(taker);
+    if (!taker) return;
+    if (taker.team === team) { taker.x = back - dir * (taker.radius + 0.1); taker.y = W / 2; }
+    this.give(taker);
+    this.startInbound(taker);
+  }
+
+  /** Inbound from the side line: the ball is never inbounded from a goal line. */
+  placeInbound(taker: Chair, x: number, y: number) {
+    const L = COURT.length, W = COURT.width, r = taker.radius;
+    const ix = Math.max(1.5, Math.min(L - 1.5, x)), top = y < W / 2;
+    taker.x = ix; taker.y = top ? -(r + 0.1) : W + r + 0.1;
+    taker.vx = taker.vy = 0; taker.heading = top ? Math.PI / 2 : -Math.PI / 2;
+    for (const c of this.onCourt) if (c !== taker && dist(c, taker.x, taker.y) < 2) {
+      const a = Math.atan2(c.y - taker.y, c.x - taker.x); c.x = taker.x + Math.cos(a) * 2; c.y = taker.y + Math.sin(a) * 2;
+      c.y = Math.max(c.radius, Math.min(W - c.radius, c.y));
+    }
+  }
+  startInbound(c: Chair) {
+    this.inbound = { chair: c, t: INBOUND_LIMIT };
+    // An inbound taken in the frontcourt counts as over half way.
+    if ((c.x - COURT.length / 2) * this.attackDir(c.team) > 0) this.crossedHalf = true;
   }
 
   give(c: Chair) {
     this.ball.holder = c;
-    c.holdTime = 0;
+    this.ball.passedBy = null;
+    this.inbound = null;
+    c.holdTime = 0; c.goalCommit = false;
     if (c.team !== this.possTeam) this.newPossession(c.team);
     if (!c.human && this.isHumanTeam(c.team)) {
       // The player who threw the pass follows the ball; otherwise the first player on that team.
@@ -179,6 +204,7 @@ export class Match {
   showBanner(text: string, sub: string, color: string, life = 1.6) { this.banner = { text, sub, color, life }; }
   deadBall(seconds: number, then: () => void, stopClock = false) {
     this.state = { kind: 'dead', timer: seconds, then, stopClock };
+    this.inbound = null;
     for (const t of [0, 1]) if (this.autoSubs[t]) this.aiSubs(t);
     this.onDeadBall();
   }
@@ -267,16 +293,12 @@ export class Match {
     ball.holder = null; ball.vx = ball.vy = ball.vz = 0;
     this.showBanner('TURNOVER', reason, this.teams[toTeam].primary);
     this.deadBall(1.3, () => {
-      const ix = Math.max(0.4, Math.min(COURT.length - 0.4, x)), iy = Math.max(0.4, Math.min(COURT.width - 0.4, y));
-      const taker = this.team(toTeam).sort((a, b) => dist(a, ix, iy) - dist(b, ix, iy))[0] ?? this.team(1 - toTeam)[0];
+      const taker = this.team(toTeam).sort((a, b) => dist(a, x, y) - dist(b, x, y))[0] ?? this.team(1 - toTeam)[0];
       if (!taker) return;
-      taker.x = ix; taker.y = iy; taker.vx = taker.vy = 0;
-      taker.heading = Math.atan2(COURT.width / 2 - iy, this.goalX(toTeam) - ix);
-      for (const c of this.team(1 - toTeam)) if (dist(c, ix, iy) < 2) {
-        const a = Math.atan2(c.y - iy, c.x - ix); c.x = ix + Math.cos(a) * 2; c.y = iy + Math.sin(a) * 2;
-      }
+      this.placeInbound(taker, x, y);
       this.possTeam = -1; // force a fresh possession (and clocks) for the inbounding team
       this.give(taker);
+      this.startInbound(taker);
     });
   }
 
@@ -367,7 +389,8 @@ export class Match {
     ball.holder = null;
     ball.vx = (tx - ball.x) / t; ball.vy = (ty - ball.y) / t;
     ball.z = 1; ball.vz = 9.8 * t / 2 - 0.3 / t;
-    ball.lockChair = from; ball.lockTime = 0.35;
+    ball.lockChair = from; ball.lockTime = 0.35; ball.passedBy = from;
+    if (this.inbound?.chair === from) this.inbound = null;
     from.holdTime = 0;
   }
 
@@ -426,11 +449,12 @@ export class Match {
     for (const c of this.onCourt) {
       const isHuman = c.human && !this.demo && !acted.has(c.player);
       if (isHuman) acted.add(c.player);
-      const ctl = isHuman ? inputs[c.player - 1] ?? IDLE : (c.human && !this.demo) || c.frozen ? BRAKED : aiControls(c, this);
+      let ctl = isHuman ? inputs[c.player - 1] ?? IDLE : (c.human && !this.demo) || c.frozen ? BRAKED : aiControls(c, this);
       if (isHuman && ctl.hype) this.useHype(c.team);
       c.boost = this.hypeTime[c.team] > 0 ? 1 : this.onFire[c.team] ? 0.3 : 0;
       c.speedMul = this.speedMul[c.team];
       const holding = ball.holder === c;
+      if (this.inbound?.chair === c) ctl = { ...BRAKED, aim: ctl.aim, pass: ctl.pass };
       const cd = c.pushCooldown;
       c.update(dt, ctl, holding);
       if (c.pushCooldown > cd + 0.1) {
@@ -442,7 +466,7 @@ export class Match {
       if (holding) {
         c.holdTime += dt;
         if (ctl.pass) { this.pass(c, ctl.aim ?? c.heading); this.sfx('pass'); }
-        else if (ctl.bounce) { this.bounce(c); this.sfx('bounce'); }
+        else if (ctl.bounce && this.inbound?.chair !== c) { this.bounce(c); this.sfx('bounce'); }
       } else if (isHuman && ctl.pass) {
         this.switchPlayer(this.playerOf(c));
       }
@@ -466,6 +490,8 @@ export class Match {
     if (big && (h.a.player === 1 || h.b.player === 1)) this.onVibrate(Math.min(60, h.impact * 8));
     if (h.impact > 2.5 || this.hitSoundGap <= 0) { this.sfx('hit', h.impact); this.hitSoundGap = 0.08; }
     if (h.a.team === h.b.team) return false;
+    // The inbounder stands out of play: contact with them has no effect on the ball.
+    if (this.inbound && (h.a === this.inbound.chair || h.b === this.inbound.chair)) return false;
 
     // Spinning: contact behind the rear axle of the victim.
     const [hitter, victim, hs, toHitterX, toHitterY] = h.aSpeed >= h.bSpeed
@@ -549,6 +575,7 @@ export class Match {
     let best: Chair | null = null, bd = Infinity;
     for (const c of this.onCourt) {
       if ((c === ball.lockChair && ball.lockTime > 0) || c.tipped > 0) continue;
+      if (c.x < 0 || c.x > COURT.length || c.y < 0 || c.y > COURT.width) continue; // out of bounds: can't play the ball
       const d = dist(c, ball.x, ball.y);
       if (d < c.catchRadius && d < bd) { bd = d; best = c; }
     }
@@ -571,9 +598,25 @@ export class Match {
     if (pt >= 0) {
       this.shotClock -= dt;
       const bx = h ? h.x : ball.x;
-      if (!this.crossedHalf) {
-        this.backcourtClock -= dt;
-        if ((bx - COURT.length / 2) * this.attackDir(pt) > 0 && (!!h || ball.z < 0.5)) this.crossedHalf = true;
+      if (!this.crossedHalf) this.backcourtClock -= dt;
+      if (this.inbound) {
+        this.inbound.t -= dt;
+        if (this.inbound.chair !== h) this.inbound = null;
+        else if (this.inbound.t <= 0) return this.turnover(1 - pt, '8-second inbound violation', h.x, h.y);
+      }
+      // Half way: once over, no going back — not by driving, being pushed, reversing on the line or passing back.
+      const mid = COURT.length / 2, d = this.attackDir(pt);
+      const back = (why: string) => this.turnover(1 - pt, `Half-way violation: ${why}`, mid + this.attackDir(1 - pt) * 1.5, ball.y < COURT.width / 2 ? 0 : COURT.width);
+      if (h && h.team === pt && !this.inbound) {
+        const dx = (h.x - mid) * d;
+        if (!this.crossedHalf) {
+          if (dx > h.radius + 0.05) this.crossedHalf = true;
+          else if (dx > -h.radius && (h.vx * d < -0.3)) return back('reversed on the line');
+        } else if (dx < h.radius) return back('back over half way');
+      } else if (!h) {
+        const dx = (ball.x - mid) * d;
+        if (!this.crossedHalf && dx > 0 && ball.z < 0.5) this.crossedHalf = true;
+        if (this.crossedHalf && dx < 0 && ball.passedBy?.team === pt) return back('ball passed back');
       }
       if (this.shotClock <= 0) return this.turnover(1 - pt, '40-second violation', ball.x, ball.y);
       if (!this.crossedHalf && this.backcourtClock <= 0) return this.turnover(1 - pt, '12-second violation', ball.x, ball.y);
@@ -597,11 +640,16 @@ export class Match {
 
     if (h) {
       const gx = this.goalX(h.team), ky = (COURT.width - COURT.keyWidth) / 2;
-      const crossed = h.team === 0 ? h.x > gx + 0.1 : h.x < gx - 0.1;
-      if (crossed && h.y > ky && h.y < ky + COURT.keyWidth) return this.goal(h);
+      if (this.inbound?.chair === h) return;
+      // Goal: both wheels over the line between the cones. Once any part is over, the carrier must go all the way.
+      const over = (h.x - gx) * this.attackDir(h.team), inY = h.y > ky && h.y < ky + COURT.keyWidth;
+      if (inY && over > h.radius) return this.goal(h);
+      if (inY && over > -h.radius) h.goalCommit = true;
+      else if (h.goalCommit && over <= -h.radius) return this.turnover(1 - h.team, 'Came back off the goal line', h.x, h.y);
       const o = 0.35;
-      if (h.x < -o || h.x > COURT.length + o || h.y < -o || h.y > COURT.width + o) return this.turnover(1 - h.team, 'Out of bounds', h.x, h.y);
-      if (h.holdTime > R.dribbleLimit) return this.turnover(1 - h.team, '10-second dribble violation', h.x, h.y);
+      const pastGoal = h.goalCommit && inY;
+      if ((!pastGoal && (h.x < -o || h.x > COURT.length + o)) || h.y < -o || h.y > COURT.width + o) return this.turnover(1 - h.team, 'Out of bounds', h.x, h.y);
+      if (h.holdTime > R.dribbleLimit) return this.turnover(1 - h.team, `${R.dribbleLimit}-second dribble violation`, h.x, h.y);
     } else if (ball.z < 0.3 && (ball.x < 0 || ball.x > COURT.length || ball.y < 0 || ball.y > COURT.width)) {
       const last = ball.lockChair?.team ?? 0;
       return this.turnover(1 - last, 'Ball out', ball.x, ball.y);
@@ -671,7 +719,7 @@ export class Match {
   draw(ctx: CanvasRenderingContext2D) {
     const h = this.ball.holder;
     if (h) {
-      const left = 1 - h.holdTime / this.rules.dribbleLimit;
+      const left = this.inbound?.chair === h ? this.inbound.t / INBOUND_LIMIT : 1 - h.holdTime / this.rules.dribbleLimit;
       ctx.strokeStyle = left > 0.3 ? 'rgba(255,255,255,0.8)' : '#ff4040';
       ctx.lineWidth = 0.12;
       ctx.beginPath();

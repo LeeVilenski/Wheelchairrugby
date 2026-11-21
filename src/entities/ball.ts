@@ -6,6 +6,7 @@ export class Ball {
   holder: Chair | null = null;
   lockChair: Chair | null = null;   // can't re-catch immediately after passing / being stripped
   lockTime = 0;
+  passedBy: Chair | null = null;    // set by a pass, cleared on the next catch (half-way rule)
   bounceAnim = 0;
   readonly radius = 0.17;
 

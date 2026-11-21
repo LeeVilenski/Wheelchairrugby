@@ -68,16 +68,16 @@ export const DRILLS: Drill[] = [
   (() => {
     let held = 0, bounces = 0;
     return {
-      id: 'bounce', title: '3. The 10-second dribble',
-      text: { keys: 'You must bounce (Q) or pass within 10 seconds of getting the ball. Keep the ball for 25 seconds, bouncing at least twice.',
-        touch: 'You must BOUNCE or pass within 10 seconds of getting the ball. Keep it for 25 seconds, bouncing at least twice.' },
+      id: 'bounce', title: '3. The 8-second dribble',
+      text: { keys: 'You must bounce (Q) or pass within 8 seconds of getting the ball. Keep the ball for 25 seconds, bouncing at least twice.',
+        touch: 'You must BOUNCE or pass within 8 seconds of getting the ball. Keep it for 25 seconds, bouncing at least twice.' },
       setup(m: Match) { held = 0; bounces = 0; only(m, [{ team: 0, idx: 0, x: 8, y: W / 2 }]); m.give(m.human); },
       check(m: Match, dt: number) {
         const h = m.human;
         if (m.ball.holder !== h) { m.give(h); }
         if (m.ball.bounceAnim > 0.38) bounces++;
         held += dt;
-        if (h.holdTime > 10) return 'fail:Too slow! The referee calls a 10-second violation. Bounce before the ring runs out.';
+        if (h.holdTime > 8) return 'fail:Too slow! The referee calls an 8-second violation. Bounce before the ring runs out.';
         return held >= 25 && bounces >= 2 ? 'done' : `Time: ${held.toFixed(0)} / 25 s · Bounces: ${bounces}${h.holdTime > 7 ? ' · BOUNCE NOW!' : ''}`;
       },
     };
